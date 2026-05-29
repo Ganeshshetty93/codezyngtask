@@ -1,0 +1,33 @@
+{
+  "name": "codezyng-fullstack",
+  "version": "1.0.0",
+  "description": "A complete fullstack e-commerce application with React, Node.js, and MongoDB",
+  "main": "backend/server.js",
+  "scripts": {
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install && cd ..",
+    "start-backend": "cd backend && npm start",
+    "dev-backend": "cd backend && npm run dev",
+    "start-frontend": "cd frontend && npm start",
+    "build-frontend": "cd frontend && npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "fullstack",
+    "ecommerce",
+    "react",
+    "nodejs",
+    "mongodb",
+    "express",
+    "tailwind"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/codezyng"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/codezyng/issues"
+  },
+  "homepage": "https://github.com/yourusername/codezyng#readme"
+}
