@@ -28,7 +28,7 @@ exports.getTaskById = async (req, res) => {
 // Create task with AI suggestions
 exports.createTask = async (req, res) => {
   try {
-    const { title, description, category, useAI } = req.body;
+    const { title, description, category, priority, dueDate, useAI } = req.body;
     const userId = req.user.id;
 
     let taskData = {
@@ -36,17 +36,19 @@ exports.createTask = async (req, res) => {
       title: title || 'New Task',
       description,
       category: category || 'general',
+      priority: priority || 'medium',
+      due_date: dueDate || null,
       status: 'todo'
     };
 
     // Use AI to suggest priority and time estimation
     if (useAI) {
-      const [priority, estimatedHours] = await Promise.all([
+      const [suggestedPriority, estimatedHours] = await Promise.all([
         AITaskService.suggestPriority(title, description),
         AITaskService.estimateTime(title, description)
       ]);
 
-      taskData.priority = priority;
+      taskData.priority = suggestedPriority;
       taskData.estimated_hours = estimatedHours;
     }
 

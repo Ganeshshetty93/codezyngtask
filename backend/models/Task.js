@@ -93,7 +93,6 @@ class Task {
       .from('tasks')
       .select('*')
       .eq('user_id', userId)
-      .is('due_date', null)
       .gte('due_date', new Date().toISOString())
       .lte('due_date', new Date(Date.now() + days * 86400000).toISOString())
       .order('due_date', { ascending: true });

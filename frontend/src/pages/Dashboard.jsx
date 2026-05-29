@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api.jsx';
+import { supabase, getAuthUserId } from '../services/supabaseClient.jsx';
 
 function Dashboard() {
   const [tasks, setTasks] = useState([]);
@@ -7,6 +8,8 @@ function Dashboard() {
   const [useAI, setUseAI] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [categoryInput, setCategoryInput] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [stats, setStats] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -15,21 +18,26 @@ function Dashboard() {
     category: 'general',
     dueDate: ''
   });
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    description: '',
+    priority: 'medium',
+    category: 'general',
+    status: 'todo',
+    dueDate: ''
+  });
+  const [editingTask, setEditingTask] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [successTimeout, setSuccessTimeout] = useState(null);
 
-  useEffect(() => {
-    fetchTasks();
-    fetchStats();
-  }, [filter]);
-
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
       setLoading(true);
       let response;
-      
-      if (filter === 'all') {
+
+      if (categoryFilter) {
+        response = await api.get(`/tasks/category/${encodeURIComponent(categoryFilter)}`);
+      } else if (filter === 'all') {
         response = await api.get('/tasks');
       } else if (filter === 'upcoming') {
         response = await api.get('/tasks/upcoming/all');
@@ -38,24 +46,57 @@ function Dashboard() {
       } else {
         response = await api.get(`/tasks/status/${filter}`);
       }
-      
+
       setTasks(response.data);
       setError('');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load tasks');
+      setTasks([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, categoryFilter]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const response = await api.get('/tasks/stats/dashboard');
       setStats(response.data);
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchTasks();
+    fetchStats();
+  }, [fetchTasks, fetchStats]);
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+
+    const userId = getAuthUserId();
+    const channel = supabase
+      .channel('task-updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload) => {
+          const record = payload.record || payload.new;
+          const oldRecord = payload.old || payload.record;
+
+          if (!userId) return;
+          if (record?.user_id !== userId && oldRecord?.user_id !== userId) return;
+
+          fetchTasks();
+          fetchStats();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchTasks, fetchStats]);
 
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -132,6 +173,53 @@ function Dashboard() {
       fetchTasks();
     } catch (err) {
       setError('Failed to break down task');
+    }
+  };
+
+  const startEdit = (task) => {
+    setEditingTask(task);
+    setShowForm(false);
+    setUseAI(false);
+    setEditFormData({
+      title: task.title || '',
+      description: task.description || '',
+      priority: task.priority || 'medium',
+      category: task.category || 'general',
+      status: task.status || 'todo',
+      dueDate: task.due_date ? task.due_date.split('T')[0] : ''
+    });
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingTask) return;
+    setError('');
+    setSuccess('');
+
+    try {
+      await api.put(`/tasks/${editingTask.id}`, {
+        title: editFormData.title,
+        description: editFormData.description,
+        priority: editFormData.priority,
+        category: editFormData.category,
+        status: editFormData.status,
+        dueDate: editFormData.dueDate || null
+      });
+
+      setSuccess('Task updated successfully!');
+      setEditingTask(null);
+      setEditFormData({
+        title: '',
+        description: '',
+        priority: 'medium',
+        category: 'general',
+        status: 'todo',
+        dueDate: ''
+      });
+      fetchTasks();
+      fetchStats();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update task');
     }
   };
 
@@ -310,12 +398,53 @@ function Dashboard() {
           </div>
         )}
 
-        {/* Filter Tabs */}
+        <div className="flex flex-wrap gap-4 mb-6 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="text"
+              value={categoryInput}
+              onChange={(e) => setCategoryInput(e.target.value)}
+              placeholder="Filter by category"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={() => {
+                const normalized = categoryInput.trim();
+                if (normalized) {
+                  setCategoryFilter(normalized);
+                  setFilter('all');
+                }
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => {
+                setCategoryFilter('');
+                setCategoryInput('');
+              }}
+              className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition"
+            >
+              Clear
+            </button>
+          </div>
+          {categoryFilter && (
+            <div className="text-sm text-gray-600">Showing tasks in category: <span className="font-semibold">{categoryFilter}</span></div>
+          )}
+        </div>
+
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
           {['all', 'todo', 'in_progress', 'done', 'upcoming', 'overdue'].map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => {
+                setFilter(f);
+                if (categoryFilter) {
+                  setCategoryFilter('');
+                  setCategoryInput('');
+                }
+              }}
               className={`px-6 py-2 rounded-full font-semibold whitespace-nowrap transition ${
                 filter === f
                   ? 'bg-blue-600 text-white shadow'
@@ -326,6 +455,111 @@ function Dashboard() {
             </button>
           ))}
         </div>
+
+        {editingTask && (
+          <div className="bg-white p-8 rounded-lg shadow-lg mb-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Edit Task</h2>
+                <p className="text-sm text-gray-500">Update task details and category, then save your changes.</p>
+              </div>
+              <button
+                onClick={() => setEditingTask(null)}
+                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+              >
+                Cancel Edit
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Title</label>
+                  <input
+                    type="text"
+                    name="title"
+                    value={editFormData.title}
+                    onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Status</label>
+                  <select
+                    name="status"
+                    value={editFormData.status}
+                    onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="todo">Todo</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Priority</label>
+                  <select
+                    name="priority"
+                    value={editFormData.priority}
+                    onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Category</label>
+                  <input
+                    type="text"
+                    name="category"
+                    value={editFormData.category}
+                    onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Due Date</label>
+                  <input
+                    type="date"
+                    name="dueDate"
+                    value={editFormData.dueDate}
+                    onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="mb-4">
+                <label className="block text-gray-700 font-bold mb-2">Description</label>
+                <textarea
+                  name="description"
+                  value={editFormData.description}
+                  onChange={(e) => setEditFormData({ ...editFormData, [e.target.name]: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  rows="4"
+                />
+              </div>
+              <div className="flex flex-col md:flex-row items-center gap-3">
+                <button
+                  type="submit"
+                  className="bg-green-600 text-white font-bold px-8 py-3 rounded-lg hover:bg-green-700 transition"
+                >
+                  Save Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="bg-gray-200 text-gray-700 font-semibold px-8 py-3 rounded-lg hover:bg-gray-300 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Tasks List */}
         {loading ? (
@@ -398,6 +632,12 @@ function Dashboard() {
                         Reopen
                       </button>
                     )}
+                    <button
+                      onClick={() => startEdit(task)}
+                      className="bg-slate-600 text-white px-3 py-1 rounded text-sm hover:bg-slate-700 transition"
+                    >
+                      Edit
+                    </button>
                     <button
                       onClick={() => handleDelete(task.id)}
                       className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition"

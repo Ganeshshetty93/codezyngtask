@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginUser } from '../services/api.jsx';
 
@@ -21,7 +21,7 @@ function Login() {
       const response = await loginUser(formData);
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed');
     } finally {
