@@ -15,23 +15,20 @@ function Navbar() {
     <nav className="bg-blue-600 text-white shadow-lg">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <Link to="/" className="text-2xl font-bold">
-          Codezyng
+          TaskMaster AI
         </Link>
         <div className="flex space-x-6 items-center">
           <Link to="/" className="hover:text-blue-200 transition">
             Home
           </Link>
-          <Link to="/products" className="hover:text-blue-200 transition">
-            Products
-          </Link>
+          {token && (
+            <Link to="/dashboard" className="hover:text-blue-200 transition">
+              Dashboard
+            </Link>
+          )}
           {token ? (
             <>
-              <span className="text-sm">Welcome, {user.name}!</span>
-              {user.role === 'admin' && (
-                <Link to="/dashboard" className="hover:text-blue-200 transition">
-                  Dashboard
-                </Link>
-              )}
+              <span className="text-sm">Welcome, {user.name || 'user'}!</span>
               <button
                 onClick={handleLogout}
                 className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition"

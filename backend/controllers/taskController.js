@@ -1,4 +1,5 @@
 const Task = require('../models/Task');
+const Subtask = require('../models/Subtask');
 const AITaskService = require('../services/aiTaskService');
 
 // Get all tasks
@@ -28,7 +29,7 @@ exports.getTaskById = async (req, res) => {
 // Create task with AI suggestions
 exports.createTask = async (req, res) => {
   try {
-    const { title, description, category, useAI } = req.body;
+    const { title, description, category, priority, dueDate, useAI } = req.body;
     const userId = req.user.id;
 
     let taskData = {
@@ -36,17 +37,19 @@ exports.createTask = async (req, res) => {
       title: title || 'New Task',
       description,
       category: category || 'general',
+      priority: priority || 'medium',
+      due_date: dueDate || null,
       status: 'todo'
     };
 
     // Use AI to suggest priority and time estimation
     if (useAI) {
-      const [priority, estimatedHours] = await Promise.all([
+      const [suggestedPriority, estimatedHours] = await Promise.all([
         AITaskService.suggestPriority(title, description),
         AITaskService.estimateTime(title, description)
       ]);
 
-      taskData.priority = priority;
+      taskData.priority = suggestedPriority;
       taskData.estimated_hours = estimatedHours;
     }
 
@@ -78,15 +81,30 @@ exports.createFromNaturalLanguage = async (req, res) => {
       description: parsedTask.description,
       category: parsedTask.category || 'general',
       priority: parsedTask.priority || 'medium',
+      due_date: parsedTask.dueDate || null,
       estimated_hours: estimatedHours,
       status: 'todo'
     };
 
     const task = await Task.create(taskData);
 
+    // Persist generated subtasks and touch the parent task so realtime updates fire
+    let createdSubtasks = [];
+    try {
+      console.info('Persisting generated subtasks for natural-language task', task.id, { count: subtasks.length });
+      console.debug('Subtasks payload:', subtasks);
+      createdSubtasks = await Subtask.createMany(task.id, subtasks);
+      console.info('Persisted generated subtasks count:', createdSubtasks.length);
+      // Touch task updated_at to trigger realtime listeners (if any)
+      await Task.update(task.id, { updatedAt: new Date().toISOString() });
+    } catch (err) {
+      // If subtask persistence fails, log but still return generated subtasks to the client
+      console.error('Failed to persist generated subtasks:', err.stack || err.message || err);
+    }
+
     res.status(201).json({
       task,
-      subtasks,
+      subtasks: createdSubtasks.length ? createdSubtasks : subtasks,
       estimatedHours
     });
   } catch (error) {
@@ -97,17 +115,38 @@ exports.createFromNaturalLanguage = async (req, res) => {
 // Break down task into subtasks
 exports.breakDownTask = async (req, res) => {
   try {
-    const { taskId } = req.params;
-    const task = await Task.getById(taskId);
+    const task = await Task.getById(req.params.id);
 
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
 
-    const subtasks = await AITaskService.breakDownTask(task.title, task.description);
-    res.json({ subtasks });
+    if (task.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    if (Array.isArray(task.subtasks) && task.subtasks.length > 0) {
+      return res.json({ subtasks: task.subtasks, message: 'Task already has subtasks.' });
+    }
+
+    const taskDescription = task.description || '';
+    const subtasks = await AITaskService.breakDownTask(task.title, taskDescription);
+    console.info('AI returned subtasks for task breakdown', { taskId: task.id, count: Array.isArray(subtasks) ? subtasks.length : 0 });
+    console.debug('Subtasks payload from AI:', subtasks);
+    const createdSubtasks = await Subtask.createMany(task.id, subtasks);
+
+    if (!createdSubtasks || createdSubtasks.length === 0) {
+      return res.status(500).json({ message: 'Failed to create subtasks from AI breakdown.' });
+    }
+
+    res.json({ subtasks: createdSubtasks });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Task breakdown failed:', error.stack || error.message);
+    const message = error.message || 'Failed to break down task';
+    if (message.toLowerCase().includes('rate limit')) {
+      return res.status(503).json({ message: 'AI service is rate limited. Please try again shortly.' });
+    }
+    res.status(500).json({ message });
   }
 };
 
