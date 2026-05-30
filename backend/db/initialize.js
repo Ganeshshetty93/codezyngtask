@@ -184,6 +184,7 @@ async function createTables() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
         title VARCHAR(255) NOT NULL,
+        description TEXT,
         status VARCHAR(50) DEFAULT 'todo',
         order_index INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -191,6 +192,63 @@ async function createTables() {
       );
     `);
     console.log('✓ Subtasks table created');
+
+    await client.query(`
+      ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS description TEXT;
+    `);
+
+    await client.query(`
+      ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
+    `);
+
+    await client.query(`
+      ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'todo';
+    `);
+
+    await client.query(`
+      ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
+
+    await client.query(`
+      ALTER TABLE subtasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
+
+    // Ensure tasks columns exist (some environments may have schema cache mismatches)
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT;
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'todo';
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority VARCHAR(50) DEFAULT 'medium';
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date TIMESTAMP;
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS estimated_hours DECIMAL(5, 2);
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS actual_hours DECIMAL(5, 2);
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
 
     // Create task_templates table for AI suggestions
     await client.query(`
