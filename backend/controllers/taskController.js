@@ -2,6 +2,66 @@ const Task = require('../models/Task');
 const Subtask = require('../models/Subtask');
 const AITaskService = require('../services/aiTaskService');
 
+const VALID_PRIORITIES = ['low', 'medium', 'high'];
+const VALID_STATUSES = ['todo', 'in_progress', 'done'];
+
+function isPastDate(dateValue) {
+  if (!dateValue) return false;
+  const dueDate = new Date(dateValue);
+  if (Number.isNaN(dueDate.getTime())) return true;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate < today;
+}
+
+function validateTaskPayload(payload = {}, { partial = false } = {}) {
+  const errors = {};
+  const title = payload.title?.toString().trim();
+  const description = payload.description?.toString() || '';
+  const category = payload.category?.toString().trim();
+  const priority = payload.priority?.toString().trim();
+  const status = payload.status?.toString().trim();
+  const dueDate = payload.dueDate ?? payload.due_date;
+
+  if (!partial || payload.title !== undefined) {
+    if (!title) errors.title = 'Title is required.';
+    else if (title.length < 3) errors.title = 'Title must be at least 3 characters.';
+    else if (title.length > 120) errors.title = 'Title must be 120 characters or fewer.';
+  }
+
+  if (description.length > 1000) {
+    errors.description = 'Description must be 1000 characters or fewer.';
+  }
+
+  if (!partial || payload.category !== undefined) {
+    if (!category) errors.category = 'Category is required.';
+    else if (category.length > 50) errors.category = 'Category must be 50 characters or fewer.';
+  }
+
+  if (priority && !VALID_PRIORITIES.includes(priority)) {
+    errors.priority = 'Priority must be low, medium, or high.';
+  }
+
+  if (status && !VALID_STATUSES.includes(status)) {
+    errors.status = 'Status must be todo, in_progress, or done.';
+  }
+
+  if (dueDate && isPastDate(dueDate)) {
+    errors.dueDate = 'Due date must be today or later.';
+  }
+
+  return errors;
+}
+
+function sendValidationError(res, errors) {
+  return res.status(400).json({
+    message: Object.values(errors)[0] || 'Validation failed.',
+    errors
+  });
+}
+
 // Get all tasks
 exports.getAllTasks = async (req, res) => {
   try {
@@ -31,12 +91,17 @@ exports.createTask = async (req, res) => {
   try {
     const { title, description, category, priority, dueDate, useAI } = req.body;
     const userId = req.user.id;
+    const validationErrors = validateTaskPayload(req.body);
+
+    if (Object.keys(validationErrors).length > 0) {
+      return sendValidationError(res, validationErrors);
+    }
 
     let taskData = {
       user_id: userId,
-      title: title || 'New Task',
-      description,
-      category: category || 'general',
+      title: title.trim(),
+      description: description?.trim() || null,
+      category: category?.trim() || 'general',
       priority: priority || 'medium',
       due_date: dueDate || null,
       status: 'todo'
@@ -65,9 +130,22 @@ exports.createFromNaturalLanguage = async (req, res) => {
   try {
     const { input } = req.body;
     const userId = req.user.id;
+    const normalizedInput = input?.toString().trim();
+
+    if (!normalizedInput) {
+      return sendValidationError(res, { input: 'Task description is required.' });
+    }
+
+    if (normalizedInput.length < 5) {
+      return sendValidationError(res, { input: 'Task description must be at least 5 characters.' });
+    }
+
+    if (normalizedInput.length > 1000) {
+      return sendValidationError(res, { input: 'Task description must be 1000 characters or fewer.' });
+    }
 
     // Parse natural language
-    const parsedTask = await AITaskService.parseNaturalLanguage(input);
+    const parsedTask = await AITaskService.parseNaturalLanguage(normalizedInput);
 
     // Break down into subtasks
     const subtasks = await AITaskService.breakDownTask(parsedTask.title, parsedTask.description);
@@ -153,6 +231,12 @@ exports.breakDownTask = async (req, res) => {
 // Update task
 exports.updateTask = async (req, res) => {
   try {
+    const validationErrors = validateTaskPayload(req.body, { partial: true });
+
+    if (Object.keys(validationErrors).length > 0) {
+      return sendValidationError(res, validationErrors);
+    }
+
     const task = await Task.update(req.params.id, req.body);
     res.json(task);
   } catch (error) {
