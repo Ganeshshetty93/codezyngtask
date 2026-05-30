@@ -9,6 +9,9 @@ router.use(auth);
 
 // AI Features (must come before /:id routes)
 router.post('/natural-language/create', taskController.createFromNaturalLanguage);
+router.post('/ai/daily-summary', taskController.generateDailySummary);
+router.post('/ai/predict-task', taskController.predictTaskDetails);
+router.post('/ai/smart-search', taskController.smartSearch);
 
 // Special routes (must come before /:id routes)
 router.get('/stats/dashboard', taskController.getStats);

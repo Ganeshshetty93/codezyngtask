@@ -2,7 +2,7 @@ const Task = require('../models/Task');
 const Subtask = require('../models/Subtask');
 const AITaskService = require('../services/aiTaskService');
 
-const VALID_PRIORITIES = ['low', 'medium', 'high'];
+const VALID_PRIORITIES = ['low', 'medium', 'high', 'critical'];
 const VALID_STATUSES = ['todo', 'in_progress', 'done'];
 
 function isPastDate(dateValue) {
@@ -24,6 +24,7 @@ function validateTaskPayload(payload = {}, { partial = false } = {}) {
   const priority = payload.priority?.toString().trim();
   const status = payload.status?.toString().trim();
   const dueDate = payload.dueDate ?? payload.due_date;
+  const reminderAt = payload.reminderAt ?? payload.reminder_at;
 
   if (!partial || payload.title !== undefined) {
     if (!title) errors.title = 'Title is required.';
@@ -41,7 +42,7 @@ function validateTaskPayload(payload = {}, { partial = false } = {}) {
   }
 
   if (priority && !VALID_PRIORITIES.includes(priority)) {
-    errors.priority = 'Priority must be low, medium, or high.';
+    errors.priority = 'Priority must be low, medium, high, or critical.';
   }
 
   if (status && !VALID_STATUSES.includes(status)) {
@@ -50,6 +51,13 @@ function validateTaskPayload(payload = {}, { partial = false } = {}) {
 
   if (dueDate && isPastDate(dueDate)) {
     errors.dueDate = 'Due date must be today or later.';
+  }
+
+  if (reminderAt) {
+    const reminderDate = new Date(reminderAt);
+    if (Number.isNaN(reminderDate.getTime())) {
+      errors.reminderAt = 'Reminder must be a valid date and time.';
+    }
   }
 
   return errors;
@@ -89,7 +97,7 @@ exports.getTaskById = async (req, res) => {
 // Create task with AI suggestions
 exports.createTask = async (req, res) => {
   try {
-    const { title, description, category, priority, dueDate, useAI } = req.body;
+    const { title, description, category, priority, dueDate, reminderAt, estimatedHours, useAI } = req.body;
     const userId = req.user.id;
     const validationErrors = validateTaskPayload(req.body);
 
@@ -104,6 +112,8 @@ exports.createTask = async (req, res) => {
       category: category?.trim() || 'general',
       priority: priority || 'medium',
       due_date: dueDate || null,
+      reminder_at: reminderAt || null,
+      estimated_hours: estimatedHours || null,
       status: 'todo'
     };
 
@@ -225,6 +235,55 @@ exports.breakDownTask = async (req, res) => {
       return res.status(503).json({ message: 'AI service is rate limited. Please try again shortly.' });
     }
     res.status(500).json({ message });
+  }
+};
+
+// Generate AI daily summary
+exports.generateDailySummary = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const tasks = await Task.getAllByUser(userId);
+    const summary = await AITaskService.generateDailySummary(tasks || []);
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Daily summary failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to generate daily summary' });
+  }
+};
+
+// Predict priority, effort, and category for draft task text
+exports.predictTaskDetails = async (req, res) => {
+  try {
+    const title = req.body.title?.toString().trim();
+    const description = req.body.description?.toString().trim() || '';
+
+    if (!title) {
+      return sendValidationError(res, { title: 'Title is required for AI prediction.' });
+    }
+
+    const prediction = await AITaskService.predictTaskDetails(title, description);
+    res.json(prediction);
+  } catch (error) {
+    console.error('Task prediction failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to predict task details' });
+  }
+};
+
+// Convert natural language search into task filters
+exports.smartSearch = async (req, res) => {
+  try {
+    const query = req.body.query?.toString().trim();
+
+    if (!query) {
+      return sendValidationError(res, { query: 'Search query is required.' });
+    }
+
+    const filters = await AITaskService.parseSmartSearch(query);
+    res.json(filters);
+  } catch (error) {
+    console.error('Smart search failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to parse smart search' });
   }
 };
 
