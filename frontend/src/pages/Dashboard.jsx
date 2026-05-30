@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api.jsx';
-import { supabase, getAuthUserId } from '../services/supabaseClient.jsx';
+import { supabase, getAuthUserId, initSupabase } from '../services/supabaseClient.jsx';
 
 function Dashboard() {
   const [tasks, setTasks] = useState([]);
@@ -27,6 +27,7 @@ function Dashboard() {
     dueDate: ''
   });
   const [editingTask, setEditingTask] = useState(null);
+  const [realtimeActive, setRealtimeActive] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -57,6 +58,27 @@ function Dashboard() {
     }
   }, [filter, categoryFilter]);
 
+useEffect(() => {
+  const channel = supabase
+    .channel('tasks')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'tasks',
+      },
+      () => {
+        fetchTasks();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
+
   const fetchStats = useCallback(async () => {
     try {
       const response = await api.get('/tasks/stats/dashboard');
@@ -72,6 +94,14 @@ function Dashboard() {
   }, [fetchTasks, fetchStats]);
 
   useEffect(() => {
+    // Ensure supabase client is initialized at runtime (uses VITE env or window globals)
+    try {
+      // lazy init in case user provided window.__SUPABASE_URL keys at runtime
+      if (!supabase) initSupabase();
+    } catch (e) {
+      console.warn('Supabase init failed', e);
+    }
+
     if (!supabase) return undefined;
 
     const userId = getAuthUserId();
@@ -81,20 +111,70 @@ function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
         (payload) => {
-          const record = payload.record || payload.new;
-          const oldRecord = payload.old || payload.record;
+            console.debug('Supabase tasks payload received', payload);
+            const record = payload.record || payload.new;
+            const oldRecord = payload.old || payload.record;
 
-          if (!userId) return;
-          if (record?.user_id !== userId && oldRecord?.user_id !== userId) return;
+            if (!userId) return;
+            if (record?.user_id !== userId && oldRecord?.user_id !== userId) return;
 
+            fetchTasks();
+            fetchStats();
+          }
+      );
+    // Also listen for subtask changes so UI updates when subtasks are added/modified
+    channel.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'subtasks' },
+      async (payload) => {
+        console.debug('Supabase subtasks payload received', payload);
+        const record = payload.record || payload.new;
+        const oldRecord = payload.old || payload.record;
+
+        if (!userId) return;
+
+        // Subtasks don't have user_id; resolve the parent task to verify ownership
+        const taskId = record?.task_id || oldRecord?.task_id;
+        if (!taskId) {
+          fetchTasks();
+          fetchStats();
+          return;
+        }
+
+        try {
+          const resp = await api.get(`/tasks/${taskId}`);
+          const task = resp.data;
+          console.debug('Resolved parent task for subtask event', { taskId, task });
+          if (task?.user_id === userId) {
+            fetchTasks();
+            fetchStats();
+          }
+        } catch (err) {
+          // If we can't verify, fall back to refreshing to keep UI consistent
+          console.warn('Failed to resolve parent task for subtask event', err);
           fetchTasks();
           fetchStats();
         }
-      )
-      .subscribe();
+      }
+    );
+
+    console.info('Subscribing to Supabase channel: task-updates');
+    console.debug('Channel object (before subscribe):', channel);
+    const sub = channel.subscribe();
+    console.debug('Subscribe returned:', sub);
+    // Inspect channel state shortly after subscribing
+    setTimeout(() => {
+      try {
+        console.debug('Channel state after subscribe:', channel);
+      } catch (e) {
+        console.debug('Unable to inspect channel state', e);
+      }
+    }, 500);
+    setRealtimeActive(true);
 
     return () => {
       supabase.removeChannel(channel);
+      setRealtimeActive(false);
     };
   }, [fetchTasks, fetchStats]);
 
@@ -169,10 +249,10 @@ function Dashboard() {
   const handleBreakdown = async (id) => {
     try {
       const response = await api.post(`/tasks/${id}/breakdown`);
-      setSuccess(`Task broken into ${response.data.subtasks?.length || 0} subtasks!`);
+      setSuccess(`Task broken into ${response.data.subtasks?.length || 0} subtasks! ${response.data.message || ''}`.trim());
       fetchTasks();
     } catch (err) {
-      setError('Failed to break down task');
+      setError(err.response?.data?.message || 'Failed to break down task');
     }
   };
 
@@ -231,6 +311,9 @@ function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">🎯 TaskMaster AI</h1>
             <p className="text-gray-600 text-sm">Intelligent Task Management</p>
+            <p className="text-xs mt-1 text-gray-500">
+              Realtime updates: <span className={realtimeActive ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>{realtimeActive ? 'Active' : 'Disabled'}</span>
+            </p>
           </div>
           <div className="flex gap-4">
             <button
@@ -597,6 +680,20 @@ function Dashboard() {
                       {task.due_date && <span>📅 {new Date(task.due_date).toLocaleDateString()}</span>}
                       {task.estimated_hours && <span>⏱️ {task.estimated_hours}h</span>}
                     </div>
+
+                    {task.subtasks?.length > 0 && (
+                      <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-4">
+                        <p className="text-sm font-semibold text-gray-700 mb-2">Subtasks ({task.subtasks.length})</p>
+                        <ul className="space-y-2 text-gray-600 text-sm">
+                          {task.subtasks.map((subtask) => (
+                            <li key={subtask.id} className="flex items-center gap-2">
+                              <span className="text-gray-400">•</span>
+                              <span>{subtask.title || subtask.description}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2 flex-wrap justify-end">
