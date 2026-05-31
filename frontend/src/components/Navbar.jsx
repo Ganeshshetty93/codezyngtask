@@ -19,7 +19,7 @@ function Navbar({ token, user = {}, onLogout }) {
 
   return (
     <nav className="bg-blue-600 text-white shadow-sm">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+      <div className="mx-auto flex max-w-[1840px] items-center justify-between px-4 py-3">
         <Link to={token ? '/dashboard' : '/login'} className="flex items-center gap-3 text-xl font-bold tracking-tight">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm">TM</span>
           <span>TaskMaster AI</span>

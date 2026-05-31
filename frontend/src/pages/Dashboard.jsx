@@ -916,7 +916,7 @@ function Dashboard({ onLogout }) {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[1760px] flex-col gap-5 px-8 py-7 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mx-auto flex max-w-[1840px] flex-col gap-5 px-4 py-7 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-2xl text-blue-600">TM</div>
             <div>
@@ -945,7 +945,7 @@ function Dashboard({ onLogout }) {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1760px] px-8 py-8">
+      <div className="mx-auto max-w-[1840px] px-4 py-8">
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

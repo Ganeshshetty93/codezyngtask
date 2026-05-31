@@ -165,7 +165,7 @@ function DashboardHome() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow">
-        <div className="container mx-auto px-4 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="mx-auto flex max-w-[1840px] flex-col gap-4 px-4 py-6 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-gray-600 text-sm">Task analytics, completion trends, and workload overview</p>
@@ -179,7 +179,7 @@ function DashboardHome() {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="mx-auto max-w-[1840px] px-4 py-8">
         {error && (
           <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded mb-4">
             <p className="font-bold">Error</p>
