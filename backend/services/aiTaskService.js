@@ -91,13 +91,14 @@ class AITaskService {
       title: (task.title || fallbackTitle).toString().trim(),
       description: (task.description || '').toString().trim(),
       category: (task.category || 'general').toString().trim(),
-      priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
+      priority: ['low', 'medium', 'high', 'critical'].includes(priority) ? priority : 'medium',
       dueDate: task.dueDate || task.due_date || null
     };
   }
 
   static inferCategory(taskTitle = '', taskDescription = '') {
     const text = `${taskTitle} ${taskDescription}`.toLowerCase();
+    if (/(frontend|backend|api|bug|code|gateway|payment|integration|deploy|deployment)/.test(text)) return 'Development';
     if (/(launch|product|roadmap|feature|release|milestone)/.test(text)) return 'Product Management';
     if (/(campaign|marketing|social|email|brand|content|analytics)/.test(text)) return 'Marketing';
     if (/(bug|api|database|frontend|backend|deploy|code|security)/.test(text)) return 'Engineering';
@@ -109,10 +110,18 @@ class AITaskService {
   static inferPriority(taskTitle = '', taskDescription = '') {
     const text = `${taskTitle} ${taskDescription}`.toLowerCase();
 
-    const highPriorityTerms = [
-      'urgent',
+    const criticalPriorityTerms = [
       'critical',
       'blocker',
+      'payment',
+      'gateway',
+      'before launch',
+      'production outage',
+      'security incident'
+    ];
+
+    const highPriorityTerms = [
+      'urgent',
       'asap',
       'immediately',
       'emergency',
@@ -134,6 +143,7 @@ class AITaskService {
       'backlog'
     ];
 
+    if (criticalPriorityTerms.some((term) => text.includes(term))) return 'critical';
     if (highPriorityTerms.some((term) => text.includes(term))) return 'high';
     if (lowPriorityTerms.some((term) => text.includes(term))) return 'low';
     return 'medium';
@@ -614,7 +624,7 @@ class AITaskService {
         messages: [
           {
             role: 'system',
-            content: 'You are a task prioritization expert. Respond with exactly one word: low, medium, or high. No explanation, no extra text.'
+            content: 'You are a task prioritization expert. Respond with exactly one word: low, medium, high, or critical. No explanation, no extra text.'
           },
           {
             role: 'user',
@@ -626,7 +636,7 @@ class AITaskService {
       });
 
       const priority = (response.data.choices?.[0]?.message?.content || '').toLowerCase().trim();
-      if (!['low', 'medium', 'high'].includes(priority)) {
+      if (!['low', 'medium', 'high', 'critical'].includes(priority)) {
         console.error('AI priority suggestion returned invalid response:', { priority });
         throw new Error('AI priority suggestion failed: invalid response received.');
       }
@@ -739,7 +749,7 @@ class AITaskService {
         const m4 = line.match(/^priority\s*[:=-]\s*(.+)$/i);
         if (m4 && obj.priority === 'medium') {
           const p = m4[1].trim().toLowerCase();
-          obj.priority = ['low', 'medium', 'high'].includes(p) ? p : 'medium';
+          obj.priority = ['low', 'medium', 'high', 'critical'].includes(p) ? p : 'medium';
         }
       }
 
@@ -791,6 +801,243 @@ class AITaskService {
     } catch (error) {
       console.error('Error generating suggestions:', error.message || error);
       return [];
+    }
+  }
+
+  static generateDailySummaryFallback(tasks = []) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const isDueToday = (task) => {
+      if (!task.due_date) return false;
+      const due = new Date(task.due_date);
+      return due >= today && due < tomorrow;
+    };
+
+    const candidates = tasks
+      .filter((task) => task.status !== 'done')
+      .sort((a, b) => {
+        const aDueToday = isDueToday(a) ? 0 : 1;
+        const bDueToday = isDueToday(b) ? 0 : 1;
+        if (aDueToday !== bDueToday) return aDueToday - bDueToday;
+
+        const priorityRank = { critical: 0, high: 1, medium: 2, low: 3 };
+        return (priorityRank[a.priority] ?? 1) - (priorityRank[b.priority] ?? 1);
+      })
+      .slice(0, 5);
+
+    const items = candidates.length
+      ? candidates.map((task) => task.title)
+      : ['Review task list', 'Plan top priorities', 'Update progress'];
+
+    const estimatedHours = Math.max(
+      1,
+      Math.round(
+        candidates.reduce((total, task) => (
+          total + Number(task.estimated_hours || AITaskService.estimateTimeFallback(task.title, task.description || ''))
+        ), 0)
+      )
+    );
+
+    return {
+      heading: 'Today',
+      items,
+      estimatedHours
+    };
+  }
+
+  static predictTaskDetailsFallback(taskTitle = '', taskDescription = '') {
+    const text = `${taskTitle} ${taskDescription}`.toLowerCase();
+    const isPaymentGatewayLaunch = /payment/.test(text) && /gateway/.test(text) && /launch/.test(text);
+
+    return {
+      priority: isPaymentGatewayLaunch ? 'critical' : AITaskService.inferPriority(taskTitle, taskDescription),
+      estimatedHours: isPaymentGatewayLaunch ? 5 : AITaskService.estimateTimeFallback(taskTitle, taskDescription),
+      category: isPaymentGatewayLaunch ? 'Development' : AITaskService.inferCategory(taskTitle, taskDescription),
+      confidence: isPaymentGatewayLaunch ? 'high' : 'medium'
+    };
+  }
+
+  static parseSmartSearchFallback(query = '') {
+    const text = query.toLowerCase();
+    const priorities = ['critical', 'high', 'medium', 'low'].filter((priority) => text.includes(priority));
+    const categories = [];
+
+    if (text.includes('frontend')) categories.push('Frontend');
+    if (text.includes('backend')) categories.push('Backend');
+    if (text.includes('development') || text.includes('dev')) categories.push('Development');
+    if (text.includes('marketing')) categories.push('Marketing');
+    if (text.includes('product')) categories.push('Product Management');
+
+    let status = 'all';
+    if (text.includes('overdue')) status = 'overdue';
+    else if (text.includes('upcoming')) status = 'upcoming';
+    else if (text.includes('done') || text.includes('completed')) status = 'done';
+    else if (text.includes('in progress')) status = 'in_progress';
+    else if (text.includes('todo') || text.includes('pending')) status = 'todo';
+
+    const search = query
+      .replace(/\b(show|all|tasks?|task|overdue|upcoming|done|completed|in progress|todo|pending|critical|high|medium|low)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return {
+      status,
+      categories,
+      priorities,
+      search,
+      explanation: `Applied filters from "${query}".`
+    };
+  }
+
+  static async predictTaskDetails(taskTitle, taskDescription = '') {
+    try {
+      const response = await AITaskService.sendAIRequest({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You predict task metadata. Return only valid JSON with priority, estimatedHours, category, and confidence. Priority must be low, medium, high, or critical.'
+          },
+          {
+            role: 'user',
+            content: `Predict task metadata for:\nTitle: ${taskTitle}\nDescription: ${taskDescription}\n\nExample output: {"priority":"critical","estimatedHours":5,"category":"Development","confidence":"high"}`
+          }
+        ],
+        temperature: 0.2,
+        max_tokens: 250,
+        response_format: { type: 'json_object' }
+      });
+
+      const content = (response.data.choices?.[0]?.message?.content || '').toString();
+      const parsed = AITaskService.extractJsonObject(content);
+      if (!parsed) throw new Error('Unable to parse AI prediction response into JSON');
+
+      const fallback = AITaskService.predictTaskDetailsFallback(taskTitle, taskDescription);
+      const priority = (parsed.priority || fallback.priority).toString().toLowerCase();
+
+      return {
+        priority: ['low', 'medium', 'high', 'critical'].includes(priority) ? priority : fallback.priority,
+        estimatedHours: Number(parsed.estimatedHours || parsed.estimated_hours || fallback.estimatedHours),
+        category: (parsed.category || fallback.category).toString(),
+        confidence: (parsed.confidence || fallback.confidence).toString()
+      };
+    } catch (error) {
+      const serviceError = AITaskService.getAIServiceError(error, 'task prediction');
+      if (serviceError && !AITaskService.isRetryableAIError(error)) {
+        console.error('AI service error for task prediction:', error.message || error);
+        throw new Error(serviceError);
+      }
+
+      console.warn('AI task prediction unavailable, using local fallback:', error.message || error);
+      return AITaskService.predictTaskDetailsFallback(taskTitle, taskDescription);
+    }
+  }
+
+  static async parseSmartSearch(query = '') {
+    try {
+      const response = await AITaskService.sendAIRequest({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'Convert task search text into filters. Return only valid JSON with status, categories, priorities, search, and explanation. Status can be all, calendar, todo, in_progress, done, upcoming, or overdue.'
+          },
+          {
+            role: 'user',
+            content: `Search: "${query}"\n\nReturn JSON like {"status":"overdue","categories":["Frontend"],"priorities":[],"search":"frontend","explanation":"Showing overdue frontend tasks."}`
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 250,
+        response_format: { type: 'json_object' }
+      });
+
+      const content = (response.data.choices?.[0]?.message?.content || '').toString();
+      const parsed = AITaskService.extractJsonObject(content);
+      if (!parsed) throw new Error('Unable to parse AI smart search response into JSON');
+
+      const fallback = AITaskService.parseSmartSearchFallback(query);
+      const status = (parsed.status || fallback.status).toString();
+      const validStatuses = ['all', 'calendar', 'todo', 'in_progress', 'done', 'upcoming', 'overdue'];
+
+      return {
+        status: validStatuses.includes(status) ? status : fallback.status,
+        categories: Array.isArray(parsed.categories) ? parsed.categories.map(String).filter(Boolean) : fallback.categories,
+        priorities: Array.isArray(parsed.priorities)
+          ? parsed.priorities.map((priority) => priority.toString().toLowerCase()).filter((priority) => ['low', 'medium', 'high', 'critical'].includes(priority))
+          : fallback.priorities,
+        search: (parsed.search ?? fallback.search).toString(),
+        explanation: (parsed.explanation || fallback.explanation).toString()
+      };
+    } catch (error) {
+      const serviceError = AITaskService.getAIServiceError(error, 'smart search');
+      if (serviceError && !AITaskService.isRetryableAIError(error)) {
+        console.error('AI service error for smart search:', error.message || error);
+        throw new Error(serviceError);
+      }
+
+      console.warn('AI smart search unavailable, using local fallback:', error.message || error);
+      return AITaskService.parseSmartSearchFallback(query);
+    }
+  }
+
+  static async generateDailySummary(tasks = []) {
+    try {
+      const taskInput = tasks
+        .filter((task) => task.status !== 'done')
+        .slice(0, 20)
+        .map((task) => ({
+          title: task.title,
+          description: task.description || '',
+          category: task.category || 'general',
+          priority: task.priority || 'medium',
+          status: task.status || 'todo',
+          dueDate: task.due_date || null,
+          estimatedHours: task.estimated_hours || null
+        }));
+
+      const response = await AITaskService.sendAIRequest({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a productivity assistant. Return only valid JSON with heading, items, and estimatedHours.'
+          },
+          {
+            role: 'user',
+            content: `Create a concise daily task summary for today from these tasks:\n${JSON.stringify(taskInput)}\n\nReturn JSON like {"heading":"Today","items":["Complete API integration"],"estimatedHours":4}. Pick 3 to 5 practical items.`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 350,
+        response_format: { type: 'json_object' }
+      });
+
+      const content = (response.data.choices?.[0]?.message?.content || '').toString();
+      const parsed = AITaskService.extractJsonObject(content);
+
+      if (!parsed || !Array.isArray(parsed.items)) {
+        throw new Error('Unable to parse AI daily summary response into JSON');
+      }
+
+      return {
+        heading: (parsed.heading || 'Today').toString(),
+        items: parsed.items.map((item) => item.toString()).filter(Boolean).slice(0, 5),
+        estimatedHours: Number(parsed.estimatedHours || parsed.estimated_hours || 4)
+      };
+    } catch (error) {
+      const serviceError = AITaskService.getAIServiceError(error, 'daily summary');
+      if (serviceError && !AITaskService.isRetryableAIError(error)) {
+        console.error('AI service error for daily summary:', error.message || error);
+        throw new Error(serviceError);
+      }
+
+      console.warn('AI daily summary unavailable, using local fallback:', error.message || error);
+      return AITaskService.generateDailySummaryFallback(tasks);
     }
   }
 }

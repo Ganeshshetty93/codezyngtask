@@ -2,6 +2,74 @@ const Task = require('../models/Task');
 const Subtask = require('../models/Subtask');
 const AITaskService = require('../services/aiTaskService');
 
+const VALID_PRIORITIES = ['low', 'medium', 'high', 'critical'];
+const VALID_STATUSES = ['todo', 'in_progress', 'done'];
+
+function isPastDate(dateValue) {
+  if (!dateValue) return false;
+  const dueDate = new Date(dateValue);
+  if (Number.isNaN(dueDate.getTime())) return true;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate < today;
+}
+
+function validateTaskPayload(payload = {}, { partial = false } = {}) {
+  const errors = {};
+  const title = payload.title?.toString().trim();
+  const description = payload.description?.toString() || '';
+  const category = payload.category?.toString().trim();
+  const priority = payload.priority?.toString().trim();
+  const status = payload.status?.toString().trim();
+  const dueDate = payload.dueDate ?? payload.due_date;
+  const reminderAt = payload.reminderAt ?? payload.reminder_at;
+
+  if (!partial || payload.title !== undefined) {
+    if (!title) errors.title = 'Title is required.';
+    else if (title.length < 3) errors.title = 'Title must be at least 3 characters.';
+    else if (title.length > 120) errors.title = 'Title must be 120 characters or fewer.';
+  }
+
+  if (description.length > 1000) {
+    errors.description = 'Description must be 1000 characters or fewer.';
+  }
+
+  if (!partial || payload.category !== undefined) {
+    if (!category) errors.category = 'Category is required.';
+    else if (category.length > 50) errors.category = 'Category must be 50 characters or fewer.';
+  }
+
+  if (priority && !VALID_PRIORITIES.includes(priority)) {
+    errors.priority = 'Priority must be low, medium, high, or critical.';
+  }
+
+  if (status && !VALID_STATUSES.includes(status)) {
+    errors.status = 'Status must be todo, in_progress, or done.';
+  }
+
+  if (dueDate && isPastDate(dueDate)) {
+    errors.dueDate = 'Due date must be today or later.';
+  }
+
+  if (reminderAt) {
+    const reminderDate = new Date(reminderAt);
+    if (Number.isNaN(reminderDate.getTime())) {
+      errors.reminderAt = 'Reminder must be a valid date and time.';
+    }
+  }
+
+  return errors;
+}
+
+function sendValidationError(res, errors) {
+  return res.status(400).json({
+    message: Object.values(errors)[0] || 'Validation failed.',
+    errors
+  });
+}
+
 // Get all tasks
 exports.getAllTasks = async (req, res) => {
   try {
@@ -29,16 +97,23 @@ exports.getTaskById = async (req, res) => {
 // Create task with AI suggestions
 exports.createTask = async (req, res) => {
   try {
-    const { title, description, category, priority, dueDate, useAI } = req.body;
+    const { title, description, category, priority, dueDate, reminderAt, estimatedHours, useAI } = req.body;
     const userId = req.user.id;
+    const validationErrors = validateTaskPayload(req.body);
+
+    if (Object.keys(validationErrors).length > 0) {
+      return sendValidationError(res, validationErrors);
+    }
 
     let taskData = {
       user_id: userId,
-      title: title || 'New Task',
-      description,
-      category: category || 'general',
+      title: title.trim(),
+      description: description?.trim() || null,
+      category: category?.trim() || 'general',
       priority: priority || 'medium',
       due_date: dueDate || null,
+      reminder_at: reminderAt || null,
+      estimated_hours: estimatedHours || null,
       status: 'todo'
     };
 
@@ -65,9 +140,22 @@ exports.createFromNaturalLanguage = async (req, res) => {
   try {
     const { input } = req.body;
     const userId = req.user.id;
+    const normalizedInput = input?.toString().trim();
+
+    if (!normalizedInput) {
+      return sendValidationError(res, { input: 'Task description is required.' });
+    }
+
+    if (normalizedInput.length < 5) {
+      return sendValidationError(res, { input: 'Task description must be at least 5 characters.' });
+    }
+
+    if (normalizedInput.length > 1000) {
+      return sendValidationError(res, { input: 'Task description must be 1000 characters or fewer.' });
+    }
 
     // Parse natural language
-    const parsedTask = await AITaskService.parseNaturalLanguage(input);
+    const parsedTask = await AITaskService.parseNaturalLanguage(normalizedInput);
 
     // Break down into subtasks
     const subtasks = await AITaskService.breakDownTask(parsedTask.title, parsedTask.description);
@@ -150,9 +238,64 @@ exports.breakDownTask = async (req, res) => {
   }
 };
 
+// Generate AI daily summary
+exports.generateDailySummary = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const tasks = await Task.getAllByUser(userId);
+    const summary = await AITaskService.generateDailySummary(tasks || []);
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Daily summary failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to generate daily summary' });
+  }
+};
+
+// Predict priority, effort, and category for draft task text
+exports.predictTaskDetails = async (req, res) => {
+  try {
+    const title = req.body.title?.toString().trim();
+    const description = req.body.description?.toString().trim() || '';
+
+    if (!title) {
+      return sendValidationError(res, { title: 'Title is required for AI prediction.' });
+    }
+
+    const prediction = await AITaskService.predictTaskDetails(title, description);
+    res.json(prediction);
+  } catch (error) {
+    console.error('Task prediction failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to predict task details' });
+  }
+};
+
+// Convert natural language search into task filters
+exports.smartSearch = async (req, res) => {
+  try {
+    const query = req.body.query?.toString().trim();
+
+    if (!query) {
+      return sendValidationError(res, { query: 'Search query is required.' });
+    }
+
+    const filters = await AITaskService.parseSmartSearch(query);
+    res.json(filters);
+  } catch (error) {
+    console.error('Smart search failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to parse smart search' });
+  }
+};
+
 // Update task
 exports.updateTask = async (req, res) => {
   try {
+    const validationErrors = validateTaskPayload(req.body, { partial: true });
+
+    if (Object.keys(validationErrors).length > 0) {
+      return sendValidationError(res, validationErrors);
+    }
+
     const task = await Task.update(req.params.id, req.body);
     res.json(task);
   } catch (error) {

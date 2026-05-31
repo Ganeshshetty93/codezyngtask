@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerUser } from '../services/api.jsx';
 
-function Register() {
+function Register({ onAuthSuccess }) {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
@@ -34,9 +34,11 @@ function Register() {
         email: formData.email,
         password: formData.password
       });
-      localStorage.setItem('token', response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
-      navigate('/');
+      onAuthSuccess({
+        token: response.data.token,
+        user: response.data.user
+      });
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');
     } finally {

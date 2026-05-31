@@ -170,6 +170,7 @@ async function createTables() {
         status VARCHAR(50) DEFAULT 'todo',
         priority VARCHAR(50) DEFAULT 'medium',
         due_date TIMESTAMP,
+        reminder_at TIMESTAMP,
         estimated_hours DECIMAL(5, 2),
         actual_hours DECIMAL(5, 2),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -232,6 +233,10 @@ async function createTables() {
 
     await client.query(`
       ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date TIMESTAMP;
+    `);
+
+    await client.query(`
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminder_at TIMESTAMP;
     `);
 
     await client.query(`

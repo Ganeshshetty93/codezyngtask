@@ -1,47 +1,56 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-function Navbar() {
+function Navbar({ token, user = {}, onLogout }) {
   const navigate = useNavigate();
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const location = useLocation();
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
+    onLogout();
+    navigate('/login', { replace: true });
   };
 
+  const navLinkClass = (path) => (
+    `rounded-md px-3 py-2 text-sm font-semibold transition ${
+      location.pathname === path
+        ? 'bg-white/15 text-white'
+        : 'text-blue-50 hover:bg-white/10 hover:text-white'
+    }`
+  );
+
   return (
-    <nav className="bg-blue-600 text-white shadow-lg">
-      <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-        <Link to="/" className="text-2xl font-bold">
-          TaskMaster AI
+    <nav className="bg-blue-600 text-white shadow-sm">
+      <div className="mx-auto flex max-w-[1840px] items-center justify-between px-4 py-3">
+        <Link to={token ? '/dashboard' : '/login'} className="flex items-center gap-3 text-xl font-bold tracking-tight">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm">TM</span>
+          <span>TaskMaster AI</span>
         </Link>
-        <div className="flex space-x-6 items-center">
-          <Link to="/" className="hover:text-blue-200 transition">
+        <div className="flex items-center gap-2">
+          <Link to={token ? '/dashboard' : '/login'} className={navLinkClass('/dashboard')}>
             Home
           </Link>
           {token && (
-            <Link to="/dashboard" className="hover:text-blue-200 transition">
-              Dashboard
+            <Link to="/tasks" className={navLinkClass('/tasks')}>
+              Tasks
             </Link>
           )}
           {token ? (
             <>
-              <span className="text-sm">Welcome, {user.name || 'user'}!</span>
+              <span className="ml-2 hidden rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-blue-50 md:inline">
+                Welcome, {user.name || 'user'}
+              </span>
               <button
                 onClick={handleLogout}
-                className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded transition"
+                className="ml-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-bold shadow-sm transition hover:bg-red-600"
               >
                 Logout
               </button>
             </>
           ) : (
             <>
-              <Link to="/login" className="hover:text-blue-200 transition">
+              <Link to="/login" className={navLinkClass('/login')}>
                 Login
               </Link>
-              <Link to="/register" className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded transition">
+              <Link to="/register" className="rounded-lg bg-green-500 px-4 py-2 text-sm font-bold shadow-sm transition hover:bg-green-600">
                 Register
               </Link>
             </>
