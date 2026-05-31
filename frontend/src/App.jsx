@@ -40,7 +40,7 @@ function App() {
           <Route path="/login" element={token ? <Navigate to="/dashboard" /> : <Login onAuthSuccess={handleAuthSuccess} />} />
           <Route path="/register" element={token ? <Navigate to="/dashboard" /> : <Register onAuthSuccess={handleAuthSuccess} />} />
           <Route path="/dashboard" element={token ? <DashboardHome /> : <Navigate to="/login" />} />
-          <Route path="/tasks" element={token ? <Dashboard onLogout={handleLogout} /> : <Navigate to="/login" />} />
+          <Route path="/tasks" element={token ? <Dashboard /> : <Navigate to="/login" />} />
         </Routes>
       </div>
     </Router>

@@ -16,7 +16,6 @@ class Subtask {
 
     try {
       console.info('Inserting subtasks for task', taskId, { count: insertData.length });
-      console.debug('Insert payload:', insertData);
       const { data, error } = await supabase
         .from('subtasks')
         .insert(insertData)
@@ -27,11 +26,8 @@ class Subtask {
       return data || [];
     } catch (err) {
       console.warn('Subtask.insert failed, attempting fallback checks', err?.message || err);
-      // If the error is caused by a missing 'description' column, retry without it
       const msg = (err?.message || '').toLowerCase();
-      // Detect missing columns and retry with progressively smaller payloads
       if (msg.includes('description') || msg.includes('order_index') || msg.includes('status') || msg.includes('could not find') || msg.includes('column')) {
-        // If order_index/status/description are missing, exclude them in fallback payload
         const excludeOrder = msg.includes('order_index');
         const excludeDesc = msg.includes('description');
         const excludeStatus = msg.includes('status');
@@ -48,7 +44,6 @@ class Subtask {
         });
 
         console.info('Retrying subtask insert with fallback payload', { excludeDesc, excludeOrder, excludeStatus });
-        console.debug('Fallback payload:', insertDataFallback);
         const { data: data2, error: error2 } = await supabase
           .from('subtasks')
           .insert(insertDataFallback)
@@ -79,7 +74,6 @@ class Subtask {
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (msg.includes('order_index') || msg.includes('could not find') || msg.includes('column')) {
-        // Fallback: return subtasks ordered by creation time if available, otherwise unsorted
         const { data: data2, error: error2 } = await supabase
           .from('subtasks')
           .select('*')
