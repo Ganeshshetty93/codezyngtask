@@ -4,7 +4,13 @@ import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, getDay, parse, startOfWeek } from 'date-fns';
 import enUS from 'date-fns/locale/en-US';
 import api from '../services/api.jsx';
-import { supabase, getAuthUserId, initSupabase } from '../services/supabaseClient.jsx';
+import FieldError from '../components/common/FieldError.jsx';
+import StatCard from '../components/dashboard/StatCard.jsx';
+import AIAssistantPanel from '../components/Tasks/AIAssistantPanel.jsx';
+import TaskCard from '../components/Tasks/TaskCard.jsx';
+import TaskExportActions from '../components/Tasks/TaskExportActions.jsx';
+import useTaskRealtime from '../hooks/useTaskRealtime.jsx';
+import { exportTasksToCsv, exportTasksToPdf } from '../utils/taskExport.js';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 const calendarLocalizer = dateFnsLocalizer({
@@ -15,7 +21,7 @@ const calendarLocalizer = dateFnsLocalizer({
   locales: { 'en-US': enUS }
 });
 
-function Dashboard({ onLogout }) {
+function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [useAI, setUseAI] = useState(false);
@@ -131,10 +137,6 @@ function Dashboard({ onLogout }) {
     `w-full px-4 py-3 border rounded-lg focus:outline-none focus:border-blue-500 ${
       errors[field] ? 'border-red-500 bg-red-50' : 'border-gray-300'
     }`
-  );
-
-  const FieldError = ({ message }) => (
-    message ? <p className="mt-1 text-sm text-red-600">{message}</p> : null
   );
 
   const availableCategories = useMemo(() => {
@@ -288,232 +290,39 @@ function Dashboard({ onLogout }) {
     };
   };
 
-  const renderTaskCard = (task, compact = false, dragHandleProps = null) => {
-    const visibleSubtasks = compact ? (task.subtasks || []).slice(0, 3) : (task.subtasks || []);
-    const remainingSubtasks = Math.max((task.subtasks?.length || 0) - visibleSubtasks.length, 0);
-
-    return (
-    <div
-      key={task.id}
-      className={`group rounded-lg border border-gray-200 bg-white shadow-sm hover:border-blue-200 hover:shadow-md transition ${compact ? 'p-4 cursor-grab active:cursor-grabbing' : 'p-6'}`}
-      {...(dragHandleProps || {})}
-    >
-      <div className="space-y-3">
-        <div className="flex items-start gap-3">
-          <button
-            type="button"
-            className="mt-1 h-8 w-8 shrink-0 rounded-full border border-gray-300 bg-white text-gray-500 flex items-center justify-center hover:border-blue-400 hover:text-blue-600 transition"
-            title="Drag task"
-          >
-            {task.status === 'done' ? '✓' : task.status === 'in_progress' ? '⟳' : '○'}
-          </button>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className={`${compact ? 'text-base' : 'text-xl'} font-bold leading-snug text-gray-900 break-words`}>{task.title}</h3>
-              <span className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                task.priority === 'critical' ? 'bg-red-900 text-white' :
-                task.priority === 'high' ? 'bg-red-100 text-red-700' :
-                task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                'bg-green-100 text-green-700'
-              }`}>
-                {task.priority?.toUpperCase()}
-              </span>
-            </div>
-            {task.description && (
-              <p className="text-gray-600 text-sm mt-2 leading-relaxed line-clamp-3">{task.description}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-          {task.category && <span className="rounded-full bg-gray-100 px-2.5 py-1">📁 {task.category}</span>}
-          {task.due_date && <span className="rounded-full bg-gray-100 px-2.5 py-1">📅 {new Date(task.due_date).toLocaleDateString()}</span>}
-          {task.reminder_at && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">🔔 {new Date(task.reminder_at).toLocaleString()}</span>}
-          {task.estimated_hours && <span className="rounded-full bg-gray-100 px-2.5 py-1">⏱️ {task.estimated_hours}h</span>}
-        </div>
-
-        {task.subtasks?.length > 0 && (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-600">Subtasks</p>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-gray-500">{task.subtasks.length}</span>
-            </div>
-            <ul className="space-y-1.5 text-gray-600 text-sm">
-              {visibleSubtasks.map((subtask) => (
-                <li key={subtask.id} className="flex gap-2">
-                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
-                  <span className="leading-snug">{subtask.title || subtask.description}</span>
-                </li>
-              ))}
-            </ul>
-            {remainingSubtasks > 0 && (
-              <p className="mt-2 text-xs font-semibold text-gray-500">+{remainingSubtasks} more</p>
-            )}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-3">
-          {task.status === 'todo' && (
-            <>
-              <button
-                onClick={() => handleStatusChange(task.id, 'in_progress')}
-                className="rounded-md bg-yellow-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-yellow-600 transition"
-              >
-                Start
-              </button>
-              <button
-                onClick={() => handleBreakdown(task.id)}
-                className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-purple-700 transition"
-              >
-                Break Down
-              </button>
-            </>
-          )}
-          {task.status === 'in_progress' && (
-            <button
-              onClick={() => handleStatusChange(task.id, 'done')}
-              className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-green-700 transition"
-            >
-              Complete
-            </button>
-          )}
-          {task.status === 'done' && (
-            <button
-              onClick={() => handleStatusChange(task.id, 'todo')}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 transition"
-            >
-              Reopen
-            </button>
-          )}
-          <button
-            onClick={() => startEdit(task)}
-            className="rounded-md bg-slate-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700 transition"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => {
-              setAssistantTaskId(task.id);
-              setAssistantOpen(true);
-            }}
-            className="rounded-md bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition"
-          >
-            AI
-          </button>
-          <button
-            onClick={() => handleDelete(task.id)}
-            className="rounded-md bg-red-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-600 transition"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  const openAssistantForTask = (taskId) => {
+    setAssistantTaskId(taskId);
+    setAssistantOpen(true);
   };
 
-  const renderAssistantPanel = (layout = 'rail') => {
-    const isRail = layout === 'rail';
+  const handlePlanProductLaunch = () => {
+    setShowForm(true);
+    setUseAI(true);
+    setFormData((current) => ({
+      ...current,
+      title: assistantRecommendation
+        ? `Plan ${assistantRecommendation.title}`
+        : 'Plan my product launch for next month'
+    }));
+  };
 
-    if (!assistantOpen) {
-      return (
-        <div className={`${isRail ? '2xl:sticky 2xl:top-4 flex justify-end' : 'flex justify-end'}`}>
-          <button
-            type="button"
-            onClick={() => setAssistantOpen(true)}
-            className="group flex h-12 w-12 items-center justify-center rounded-lg bg-slate-900 text-xl text-white shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            title="Open AI Assistant"
-            aria-label="Open AI Assistant"
-          >
-            <span className="transition group-hover:scale-110">🤖</span>
-          </button>
-        </div>
-      );
+  const handleExportCsv = () => {
+    exportTasksToCsv(visibleTasks);
+  };
+
+  const handleExportPdf = () => {
+    const exported = exportTasksToPdf(visibleTasks);
+    if (!exported) {
+      setError('Unable to open the PDF export window. Please allow popups and try again.');
     }
-
-    return (
-      <aside className={`${isRail ? '2xl:sticky 2xl:top-4' : ''} overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm`}>
-        <div className="border-b border-slate-200 bg-slate-900 px-5 py-4 text-white">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-blue-200">AI Assistant</p>
-              <h2 className="mt-1 text-lg font-bold leading-tight">
-                {assistantRecommendation?.title || 'Plan Product Launch'}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAssistantOpen(false)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 text-xl transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-blue-300"
-              title="Collapse AI Assistant"
-              aria-label="Collapse AI Assistant"
-            >
-              🤖
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setShowForm(true);
-              setUseAI(true);
-              setFormData((current) => ({
-                ...current,
-                title: assistantRecommendation
-                  ? `Plan ${assistantRecommendation.title}`
-                  : 'Plan my product launch for next month'
-              }));
-            }}
-            className="mt-4 w-full rounded-md bg-blue-500 px-4 py-2 text-sm font-bold text-white hover:bg-blue-400 transition"
-          >
-            Plan Product Launch
-          </button>
-        </div>
-
-        {assistantRecommendation ? (
-          <div className={`${isRail ? 'space-y-4 p-5' : 'grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_280px]'}`}>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-slate-900">Suggested subtasks</p>
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-500">
-                  {assistantRecommendation.suggestedSubtasks.length}
-                </span>
-              </div>
-              <ul className="space-y-2 text-sm text-slate-700">
-                {assistantRecommendation.suggestedSubtasks.map((subtask) => (
-                  <li key={subtask} className="flex gap-2 leading-snug">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">✓</span>
-                    <span>{subtask}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className={`${isRail ? 'space-y-3' : 'grid gap-3 sm:grid-cols-3 lg:grid-cols-1'}`}>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Estimated</p>
-                <p className="mt-1 text-xl font-bold text-slate-900">{assistantRecommendation.estimatedHours}h</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Priority</p>
-                <p className="mt-1 text-xl font-bold text-slate-900">{assistantRecommendation.priority.toUpperCase()}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Deadline</p>
-                <p className="mt-1 text-base font-bold text-slate-900">{assistantRecommendation.deadline}</p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="p-5">
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">
-              Select a task from the board to see subtasks, time, priority, and deadline suggestions.
-            </div>
-          </div>
-        )}
-      </aside>
-    );
   };
+
+  const taskStatsCards = stats ? [
+    { label: 'Total Tasks', value: stats.total || 0, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'In Progress', value: stats.in_progress || 0, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { label: 'Completed', value: stats.completed || 0, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'High Priority', value: stats.high_priority || 0, color: 'text-red-600', bg: 'bg-red-50' }
+  ] : [];
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -554,85 +363,17 @@ function Dashboard({ onLogout }) {
     fetchStats();
   }, [fetchTasks, fetchStats]);
 
-  useEffect(() => {
-    // Ensure supabase client is initialized at runtime (uses VITE env or window globals)
-    try {
-      // lazy init in case user provided window.__SUPABASE_URL keys at runtime
-      if (!supabase) initSupabase();
-    } catch (e) {
-      console.warn('Supabase init failed', e);
-    }
-
-    if (!supabase) return undefined;
-
-    const userId = getAuthUserId();
-    const channel = supabase
-      .channel('tasks')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        (payload) => {
-            console.debug('Supabase tasks payload received', payload);
-            const record = payload.record || payload.new;
-            const oldRecord = payload.old || payload.record;
-
-            if (!userId) return;
-            if (record?.user_id !== userId && oldRecord?.user_id !== userId) return;
-
-            fetchTasks();
-            fetchStats();
-          }
-      );
-    // Also listen for subtask changes so UI updates when subtasks are added/modified
-    channel.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'subtasks' },
-      async (payload) => {
-        console.debug('Supabase subtasks payload received', payload);
-        const record = payload.record || payload.new;
-        const oldRecord = payload.old || payload.record;
-
-        if (!userId) return;
-
-        // Subtasks don't have user_id; resolve the parent task to verify ownership
-        const taskId = record?.task_id || oldRecord?.task_id;
-        if (!taskId) {
-          fetchTasks();
-          fetchStats();
-          return;
-        }
-
-        try {
-          const resp = await api.get(`/tasks/${taskId}`);
-          const task = resp.data;
-          console.debug('Resolved parent task for subtask event', { taskId, task });
-          if (task?.user_id === userId) {
-            fetchTasks();
-            fetchStats();
-          }
-        } catch (err) {
-          // If we can't verify, fall back to refreshing to keep UI consistent
-          console.warn('Failed to resolve parent task for subtask event', err);
-          fetchTasks();
-          fetchStats();
-        }
-      }
-    );
-
-    console.info('Subscribing to Supabase channel: tasks');
-    channel.subscribe((status) => {
-      setRealtimeActive(status === 'SUBSCRIBED');
-      if (status === 'SUBSCRIBED') {
-        fetchTasks();
-        fetchStats();
-      }
-    });
-
-    return () => {
-      supabase.removeChannel(channel);
-      setRealtimeActive(false);
-    };
+  const refreshTasksAndStats = useCallback(() => {
+    fetchTasks();
+    fetchStats();
   }, [fetchTasks, fetchStats]);
+
+  useTaskRealtime({
+    channelName: 'tasks',
+    onRefresh: refreshTasksAndStats,
+    onStatusChange: setRealtimeActive,
+    verifySubtaskOwner: true
+  });
 
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -655,13 +396,11 @@ function Dashboard({ onLogout }) {
 
     try {
       if (useAI) {
-        // Use natural language creation
         await api.post('/tasks/natural-language/create', {
           input: formData.title
         });
         setSuccess('Task created with AI assistance!');
       } else {
-        // Regular task creation
         await api.post('/tasks', {
           title: formData.title,
           description: formData.description,
@@ -914,7 +653,6 @@ function Dashboard({ onLogout }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-[1840px] flex-col gap-5 px-4 py-7 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
@@ -946,29 +684,14 @@ function Dashboard({ onLogout }) {
       </div>
 
       <div className="mx-auto max-w-[1840px] px-4 py-8">
-        {/* Stats */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white p-6 rounded-lg shadow hover:shadow-md transition">
-              <p className="text-gray-600 text-sm font-semibold uppercase">Total Tasks</p>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{stats.total || 0}</p>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow hover:shadow-md transition">
-              <p className="text-gray-600 text-sm font-semibold uppercase">In Progress</p>
-              <p className="text-4xl font-bold text-yellow-600 mt-2">{stats.in_progress || 0}</p>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow hover:shadow-md transition">
-              <p className="text-gray-600 text-sm font-semibold uppercase">Completed</p>
-              <p className="text-4xl font-bold text-green-600 mt-2">{stats.completed || 0}</p>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow hover:shadow-md transition">
-              <p className="text-gray-600 text-sm font-semibold uppercase">High Priority</p>
-              <p className="text-4xl font-bold text-red-600 mt-2">{stats.high_priority || 0}</p>
-            </div>
+            {taskStatsCards.map((card) => (
+              <StatCard key={card.label} {...card} />
+            ))}
           </div>
         )}
 
-        {/* Messages */}
         {error && (
           <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded mb-4">
             <p className="font-bold">Error</p>
@@ -981,7 +704,6 @@ function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* Create Task Form */}
         {showForm && (
           <div className="bg-white p-8 rounded-lg shadow-lg mb-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-900">Create New Task</h2>
@@ -1207,6 +929,14 @@ function Dashboard({ onLogout }) {
             <button type="button" onClick={handleDailySummary} disabled={summaryLoading} className="h-11 rounded-lg bg-slate-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{summaryLoading ? 'Generating...' : 'Daily Summary'}</button>
           </div>
 
+          <div className="mt-4 flex justify-end border-t border-slate-100 pt-4">
+            <TaskExportActions
+              count={visibleTasks.length}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+            />
+          </div>
+
           {(smartSearchMessage || selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim() || categoryFilterError) && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
               {smartSearchMessage && <span className="text-blue-700">{smartSearchMessage}</span>}
@@ -1391,7 +1121,6 @@ function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* Tasks List */}
         {loading ? (
           <div className="text-center py-12">
             <p className="text-gray-600">Loading tasks...</p>
@@ -1431,11 +1160,11 @@ function Dashboard({ onLogout }) {
                       <button
                         type="button"
                         onClick={() => setAssistantOpen(true)}
-                        className="group flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-xl text-white shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="group flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-sm font-bold text-white shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                         title="Open AI Assistant"
                         aria-label="Open AI Assistant"
                       >
-                        <span className="transition group-hover:scale-110">🤖</span>
+                        <span className="transition group-hover:scale-110">AI</span>
                       </button>
                     )}
                   </div>
@@ -1443,7 +1172,14 @@ function Dashboard({ onLogout }) {
 
                 {assistantOpen && (
                   <div className="mb-5">
-                    {renderAssistantPanel('strip')}
+                    <AIAssistantPanel
+                      open={assistantOpen}
+                      layout="strip"
+                      recommendation={assistantRecommendation}
+                      onOpen={() => setAssistantOpen(true)}
+                      onClose={() => setAssistantOpen(false)}
+                      onPlanProductLaunch={handlePlanProductLaunch}
+                    />
                   </div>
                 )}
 
@@ -1494,7 +1230,16 @@ function Dashboard({ onLogout }) {
                                   {...dragProvided.draggableProps}
                                   className={dragSnapshot.isDragging ? 'rotate-1 shadow-xl' : ''}
                                 >
-                                  {renderTaskCard(task, true, dragProvided.dragHandleProps)}
+                                  <TaskCard
+                                    task={task}
+                                    compact
+                                    dragHandleProps={dragProvided.dragHandleProps}
+                                    onStatusChange={handleStatusChange}
+                                    onBreakdown={handleBreakdown}
+                                    onEdit={startEdit}
+                                    onDelete={handleDelete}
+                                    onOpenAssistant={openAssistantForTask}
+                                  />
                                 </div>
                               )}
                             </Draggable>
@@ -1514,7 +1259,17 @@ function Dashboard({ onLogout }) {
           </DragDropContext>
         ) : (
           <div className="space-y-3">
-            {visibleTasks.map((task) => renderTaskCard(task))}
+            {visibleTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onStatusChange={handleStatusChange}
+                onBreakdown={handleBreakdown}
+                onEdit={startEdit}
+                onDelete={handleDelete}
+                onOpenAssistant={openAssistantForTask}
+              />
+            ))}
           </div>
         )}
           </div>
@@ -1525,3 +1280,4 @@ function Dashboard({ onLogout }) {
 }
 
 export default Dashboard;
+

@@ -176,17 +176,13 @@ exports.createFromNaturalLanguage = async (req, res) => {
 
     const task = await Task.create(taskData);
 
-    // Persist generated subtasks and touch the parent task so realtime updates fire
     let createdSubtasks = [];
     try {
       console.info('Persisting generated subtasks for natural-language task', task.id, { count: subtasks.length });
-      console.debug('Subtasks payload:', subtasks);
       createdSubtasks = await Subtask.createMany(task.id, subtasks);
       console.info('Persisted generated subtasks count:', createdSubtasks.length);
-      // Touch task updated_at to trigger realtime listeners (if any)
       await Task.update(task.id, { updatedAt: new Date().toISOString() });
     } catch (err) {
-      // If subtask persistence fails, log but still return generated subtasks to the client
       console.error('Failed to persist generated subtasks:', err.stack || err.message || err);
     }
 
@@ -220,7 +216,6 @@ exports.breakDownTask = async (req, res) => {
     const taskDescription = task.description || '';
     const subtasks = await AITaskService.breakDownTask(task.title, taskDescription);
     console.info('AI returned subtasks for task breakdown', { taskId: task.id, count: Array.isArray(subtasks) ? subtasks.length : 0 });
-    console.debug('Subtasks payload from AI:', subtasks);
     const createdSubtasks = await Subtask.createMany(task.id, subtasks);
 
     if (!createdSubtasks || createdSubtasks.length === 0) {

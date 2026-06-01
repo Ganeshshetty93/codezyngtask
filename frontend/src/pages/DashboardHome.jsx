@@ -15,7 +15,8 @@ import {
   YAxis
 } from 'recharts';
 import api from '../services/api.jsx';
-import { getAuthUserId, initSupabase, supabase } from '../services/supabaseClient.jsx';
+import StatCard from '../components/dashboard/StatCard.jsx';
+import useTaskRealtime from '../hooks/useTaskRealtime.jsx';
 
 const completionColors = ['#16a34a', '#f59e0b', '#2563eb'];
 const categoryColors = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
@@ -48,49 +49,10 @@ function DashboardHome() {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  useEffect(() => {
-    try {
-      if (!supabase) initSupabase();
-    } catch (err) {
-      console.warn('Supabase init failed', err);
-    }
-
-    if (!supabase) return undefined;
-
-    const userId = getAuthUserId();
-    const channel = supabase
-      .channel('dashboard-tasks')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        (payload) => {
-          const record = payload.new || payload.record;
-          const oldRecord = payload.old || payload.record;
-
-          if (!userId) return;
-          if (record?.user_id !== userId && oldRecord?.user_id !== userId) return;
-
-          fetchDashboardData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'subtasks' },
-        () => {
-          fetchDashboardData();
-        }
-      );
-
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        fetchDashboardData();
-      }
-    });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchDashboardData]);
+  useTaskRealtime({
+    channelName: 'dashboard-tasks',
+    onRefresh: fetchDashboardData
+  });
 
   const analytics = useMemo(() => {
     const today = new Date();
@@ -193,11 +155,7 @@ function DashboardHome() {
           <>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               {statCards.map((card) => (
-                <div key={card.label} className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-                  <div className={`mb-4 h-2 w-12 rounded-full ${card.bg}`} />
-                  <p className="text-gray-600 text-sm font-semibold uppercase">{card.label}</p>
-                  <p className={`text-4xl font-bold mt-2 ${card.color}`}>{card.value}</p>
-                </div>
+                <StatCard key={card.label} {...card} />
               ))}
             </div>
 
