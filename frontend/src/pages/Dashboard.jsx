@@ -8,7 +8,9 @@ import FieldError from '../components/common/FieldError.jsx';
 import StatCard from '../components/dashboard/StatCard.jsx';
 import AIAssistantPanel from '../components/Tasks/AIAssistantPanel.jsx';
 import TaskCard from '../components/Tasks/TaskCard.jsx';
+import TaskExportActions from '../components/Tasks/TaskExportActions.jsx';
 import useTaskRealtime from '../hooks/useTaskRealtime.jsx';
+import { exportTasksToCsv, exportTasksToPdf } from '../utils/taskExport.js';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 const calendarLocalizer = dateFnsLocalizer({
@@ -302,6 +304,17 @@ function Dashboard() {
         ? `Plan ${assistantRecommendation.title}`
         : 'Plan my product launch for next month'
     }));
+  };
+
+  const handleExportCsv = () => {
+    exportTasksToCsv(visibleTasks);
+  };
+
+  const handleExportPdf = () => {
+    const exported = exportTasksToPdf(visibleTasks);
+    if (!exported) {
+      setError('Unable to open the PDF export window. Please allow popups and try again.');
+    }
   };
 
   const taskStatsCards = stats ? [
@@ -914,6 +927,14 @@ function Dashboard() {
             <button type="button" onClick={() => { if (categoryDraft.length === 0) { setCategoryFilterError('Select at least one category before applying.'); return; } setSelectedCategories(categoryDraft); setCategoryMenuOpen(false); setCategoryFilterError(''); }} className="h-11 rounded-lg bg-blue-600 px-5 text-sm font-bold text-white transition hover:bg-blue-700">Apply</button>
             <button type="button" onClick={() => { setSearchQuery(''); setSelectedCategories([]); setCategoryDraft([]); setCategoryMenuOpen(false); setSelectedPriorities([]); setPriorityMenuOpen(false); setCategoryFilterError(''); setSmartSearchMessage(''); }} className="h-11 rounded-lg bg-gray-200 px-5 text-sm font-semibold text-gray-700 transition hover:bg-gray-300">Clear</button>
             <button type="button" onClick={handleDailySummary} disabled={summaryLoading} className="h-11 rounded-lg bg-slate-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{summaryLoading ? 'Generating...' : 'Daily Summary'}</button>
+          </div>
+
+          <div className="mt-4 flex justify-end border-t border-slate-100 pt-4">
+            <TaskExportActions
+              count={visibleTasks.length}
+              onExportCsv={handleExportCsv}
+              onExportPdf={handleExportPdf}
+            />
           </div>
 
           {(smartSearchMessage || selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim() || categoryFilterError) && (

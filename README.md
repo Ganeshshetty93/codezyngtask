@@ -1,292 +1,146 @@
-# 🤖 TaskMaster AI - Intelligent Task Management
+# TaskMaster AI
 
-An intelligent task management application with **AI-powered features** built with React 18, Express.js, PostgreSQL, and OpenAI GPT-3.5.
+AI-powered task management app built for the Codezyng fullstack assignment, using the "AI-Powered Task Manager" option.
 
-## ✨ Features
+## Features
 
-### Core Task Management
-- ✅ Create, read, update, and delete tasks
-- ✅ Set priorities (low, medium, high)
-- ✅ Assign due dates and track time
-- ✅ Mark status (todo → in_progress → done)
-- ✅ Organize by categories (work, personal, health, etc.)
+- Email/password authentication with JWT
+- User-isolated task CRUD
+- Task categories, priority, due dates, reminders, status filters, search, and smart search
+- Kanban board with drag and drop
+- Calendar view for due dates
+- Analytics dashboard with Recharts
+- Supabase realtime updates for task/subtask changes
+- AI features:
+  - Natural language task creation
+  - Smart task breakdown into subtasks
+  - Priority prediction
+  - Time estimation
+  - Daily summary generation
+- Dark mode, profile page, CSV/PDF export
 
-### 🤖 AI-Powered Features
-- ✅ **Natural Language Task Creation**: "Plan my product launch" → Creates task + subtasks automatically
-- ✅ **Smart Task Breakdown**: Automatically split epic tasks into actionable subtasks
-- ✅ **Priority Suggestions**: AI analyzes and suggests appropriate priority
-- ✅ **Time Estimation**: Get AI-powered time estimates for completion
-- ✅ **Smart Suggestions**: Intelligent recommendations based on your task history
+## Tech Stack
 
-### Security & Authentication
-- ✅ Email/password registration and login
-- ✅ Secure password hashing (bcryptjs)
-- ✅ JWT token authentication
-- ✅ User-isolated task lists
+- Frontend: React 18, Vite, Tailwind CSS, React Router, Axios
+- UI libraries: Recharts, React Big Calendar, `@hello-pangea/dnd`
+- Backend: Node.js, Express
+- Database/realtime: Supabase Postgres and Supabase Realtime
+- Auth: JWT plus bcrypt password hashing
+- AI: Gemini Flash by default, with OpenAI fallback support
 
-## 🏗️ Project Structure
+## Project Structure
 
-```
+```text
 codezyng/
-├── frontend/                    # React 18 + Vite
-│   ├── src/
-│   │   ├── main.jsx            # Entry point
-│   │   ├── App.jsx             # Main component
-│   │   ├── api.jsx             # Axios config
-│   │   ├── pages/              # Page components
-│   │   │   ├── Login.jsx
-│   │   │   ├── Register.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── CreateTask.jsx
-│   │   │   ├── TaskDetail.jsx
-│   │   │   └── Profile.jsx
-│   │   ├── components/         # Reusable components
-│   │   │   ├── Navbar.jsx
-│   │   │   └── TaskCard.jsx
-│   │   └── App.css
-│   ├── vite.config.js
-│   ├── tailwind.config.cjs
-│   ├── package.json
-│   └── index.html
-│
-├── backend/                     # Express.js API
-│   ├── db/
-│   │   └── initialize.js       # Database setup
-│   ├── config/
-│   │   ├── database.js         # PostgreSQL pool
-│   │   └── supabase.js         # Supabase config
-│   ├── services/
-│   │   └── aiTaskService.js    # AI features
-│   ├── models/
-│   │   ├── User.js
-│   │   └── Task.js
-│   ├── controllers/
-│   │   ├── userController.js
-│   │   └── taskController.js
-│   ├── routes/
-│   │   ├── userRoutes.js
-│   │   └── taskRoutes.js
-│   ├── middleware/
-│   │   └── auth.js
-│   ├── server.js
-│   └── .env
-│
-└── Documentation/
-    ├── GET_STARTED.md          # ← Start here!
-    ├── QUICK_START.md
-    ├── COMMANDS.md
-    └── TASKMASTER_AI_SETUP.md
-```
-│   ├── package.json
-│   └── .env.example
-│
-└── frontend/               # React + Tailwind Frontend
-    ├── public/
-    │   └── index.html
-    ├── src/
-    │   ├── components/     # Reusable components
-    │   │   ├── Navbar.js
-    │   │   └── ProductCard.js
-    │   ├── pages/          # Page components
-    │   │   ├── Home.js
-    │   │   ├── Products.js
-    │   │   ├── ProductDetail.js
-    │   │   ├── Login.js
-    │   │   ├── Register.js
-    │   │   └── Dashboard.js
-    │   ├── services/       # API services
-    │   │   └── api.js
-    │   ├── App.js
-    │   ├── index.js
-    │   └── index.css
-    ├── package.json
-    ├── tailwind.config.js
-    └── postcss.config.js
+  backend/
+    config/          Supabase and DB clients
+    controllers/     HTTP request handlers
+    db/              Database initialization
+    middleware/      JWT auth middleware
+    models/          Supabase data access
+    routes/          Express routes
+    services/        AI task service
+    server.js
+  frontend/
+    src/
+      components/    Reusable UI components
+      hooks/         Realtime hooks
+      pages/         App pages
+      services/      API and Supabase clients
+      utils/         Export helpers
 ```
 
-## Prerequisites
+## Environment Variables
 
-- Node.js (v14 or higher)
-- MongoDB (local or Atlas connection string)
-- npm or yarn
+Create `backend/.env` from `backend/.env.example`:
 
-## Installation & Setup
-
-### Backend Setup
-
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create a `.env` file based on `.env.example`:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Update `.env` with your configuration:
-   ```
-   PORT=5000
-   MONGODB_URI=mongodb://localhost:27017/codezyng
-   JWT_SECRET=your_secret_key_here
-   NODE_ENV=development
-   ```
-
-5. Start the backend server:
-   ```bash
-   npm start
-   # or for development with auto-reload
-   npm run dev
-   ```
-
-The backend will run on `http://localhost:5000`
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm start
-   ```
-
-The frontend will run on `http://localhost:3000`
-
-## API Endpoints
-
-### User Routes
-- `POST /api/users/register` - Register a new user
-- `POST /api/users/login` - Login user
-- `GET /api/users` - Get all users (admin only)
-- `GET /api/users/:id` - Get user by ID
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user (admin only)
-
-### Product Routes
-- `GET /api/products` - Get all products (with filters)
-  - Query params: `category`, `minPrice`, `maxPrice`, `search`
-- `GET /api/products/:id` - Get product by ID
-- `POST /api/products` - Create product (admin only)
-- `PUT /api/products/:id` - Update product (admin only)
-- `DELETE /api/products/:id` - Delete product (admin only)
-- `POST /api/products/:id/reviews` - Add review to product
-
-## Default Admin Account
-
-After setting up, you can create an admin account by:
-
-1. Register a user account
-2. Update the user in MongoDB to have `role: "admin"`
-
-Or modify the user registration to include admin role:
-```javascript
-// In backend/controllers/userController.js
-const user = await User.create({
-  name,
-  email,
-  password,
-  role: 'admin' // Set to 'admin' for first user
-});
+```env
+PORT=5000
+JWT_SECRET=replace-with-a-long-random-secret
+NODE_ENV=development
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-service-or-publishable-key
+SUPABASE_DB_URL=postgresql://postgres:[password]@[host]:6543/postgres
+AI_PROVIDER=gemini
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=your-gemini-api-key
+OPENAI_API_KEY=your-openai-api-key
 ```
 
-## Technologies Used
+Create `frontend/.env.local` from `frontend/.env.example`:
 
-### Frontend
-- React 18
-- React Router v6
-- Tailwind CSS
-- Axios (for API calls)
-- **Vite** (Lightning-fast build tool)
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-public-anon-key
+```
 
-### Backend
-- Node.js
-- Express.js
-- MongoDB (Mongoose ODM)
-- JWT (Authentication)
-- bcryptjs (Password hashing)
+Do not commit real `.env` files or private API keys.
 
-## Running the Full Application
+## Local Setup
 
-1. Make sure MongoDB is running
-2. Start the backend: `cd backend && npm start`
-3. In a new terminal, start the frontend: `cd frontend && npm start`
-4. Open `http://localhost:3000` in your browser
+Install backend dependencies:
 
-## Features Guide
+```bash
+cd backend
+npm install
+node db/initialize.js
+npm run dev
+```
 
-### Home Page
-- Welcome hero section
-- Feature highlights
-- Call-to-action buttons
+Install frontend dependencies:
 
-### Products Page
-- Product grid with cards
-- Search functionality
-- Category filtering
-- Price range filtering
-- Responsive design
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-### Product Detail Page
-- Detailed product information
-- Customer reviews and ratings
-- Add review functionality
-- Stock information
+Open the Vite URL shown in the terminal, usually `http://localhost:5173`.
 
-### Authentication
-- User registration
-- User login
-- Protected routes
-- JWT token management
+## Database Setup
 
-### Admin Dashboard
-- Create new products
-- View all products
-- Delete products
-- Product management table
+`backend/db/initialize.js` creates the required tables and indexes:
 
-## Error Handling
+- `users`
+- `tasks`
+- `subtasks`
+- `task_templates`
 
-The application includes comprehensive error handling:
-- Input validation
-- API error responses
-- User-friendly error messages
-- Try-catch blocks in async operations
+It also enables Supabase Realtime publication for `tasks` and `subtasks` and sets replica identity to support update/delete payloads.
 
-## Future Enhancements
+## Main API Routes
 
-- Shopping cart functionality
-- Payment integration (Stripe/PayPal)
-- Order management
-- User wishlist
-- Product recommendations
-- Advanced analytics
-- Email notifications
+- `POST /api/users/register`
+- `POST /api/users/login`
+- `GET /api/users/:id`
+- `PUT /api/users/:id`
+- `GET /api/tasks`
+- `POST /api/tasks`
+- `PUT /api/tasks/:id`
+- `DELETE /api/tasks/:id`
+- `POST /api/tasks/ai-generate`
+- `POST /api/tasks/:id/breakdown`
+- `POST /api/tasks/ai/priority-prediction`
+- `POST /api/tasks/ai/smart-search`
+- `GET /api/tasks/stats/dashboard`
 
-## Contributing
+## Deployment Guide
 
-Feel free to fork this project and submit pull requests for any improvements.
+Backend deployment:
 
-## License
+1. Deploy `backend/` to Render, Railway, or another Node host.
+2. Add all backend environment variables.
+3. Run `node db/initialize.js` once against the production Supabase project.
+4. Start with `npm start`.
 
-This project is open source and available under the MIT License.
+Frontend deployment:
 
-## Support
+1. Deploy `frontend/` to Vercel, Netlify, or another static host.
+2. Set `VITE_API_URL` to the deployed backend `/api` URL.
+3. Set Supabase realtime variables.
+4. Build with `npm run build`.
 
-For issues or questions, please open an issue on the repository.
+## Documentation
 
----
-
-**Happy Coding! 🚀**
+See [DOCUMENTATION.md](./DOCUMENTATION.md) for architecture decisions, AI tool usage, and trade-offs made for the assignment.

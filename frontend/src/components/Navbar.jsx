@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-function Navbar({ token, user = {}, onLogout }) {
+function Navbar({ token, user = {}, darkMode = false, onToggleDarkMode, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -29,10 +29,32 @@ function Navbar({ token, user = {}, onLogout }) {
             Home
           </Link>
           {token && (
-            <Link to="/tasks" className={navLinkClass('/tasks')}>
-              Tasks
-            </Link>
+            <>
+              <Link to="/tasks" className={navLinkClass('/tasks')}>
+                Tasks
+              </Link>
+              <Link to="/profile" className={navLinkClass('/profile')}>
+                Profile
+              </Link>
+            </>
           )}
+          <button
+            type="button"
+            onClick={onToggleDarkMode}
+            className="flex h-9 w-[74px] items-center rounded-full bg-white/15 p-1 transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-pressed={darkMode}
+          >
+            <span
+              className={`flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-blue-600 shadow-sm transition-transform ${
+                darkMode ? 'translate-x-9' : 'translate-x-0'
+              }`}
+            >
+              {darkMode ? 'D' : 'L'}
+            </span>
+            <span className="sr-only">{darkMode ? 'Dark mode enabled' : 'Light mode enabled'}</span>
+          </button>
           {token ? (
             <>
               <span className="ml-2 hidden rounded-full bg-white/10 px-3 py-2 text-sm font-semibold text-blue-50 md:inline">

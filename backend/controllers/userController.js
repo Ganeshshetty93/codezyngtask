@@ -115,7 +115,15 @@ exports.updateUser = async (req, res, next) => {
     }
 
     const updatedUser = await User.update(req.params.id, updateData);
-    res.json({ message: 'User updated successfully', user: updatedUser });
+    res.json({
+      message: 'User updated successfully',
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

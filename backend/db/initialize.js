@@ -164,6 +164,35 @@ async function createTables() {
       CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `);
+    await client.query(`
+      ALTER TABLE tasks REPLICA IDENTITY FULL;
+      ALTER TABLE subtasks REPLICA IDENTITY FULL;
+
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_publication_tables
+            WHERE pubname = 'supabase_realtime'
+              AND schemaname = 'public'
+              AND tablename = 'tasks'
+          ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_publication_tables
+            WHERE pubname = 'supabase_realtime'
+              AND schemaname = 'public'
+              AND tablename = 'subtasks'
+          ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.subtasks;
+          END IF;
+        END IF;
+      END $$;
+    `);
     console.log('✓ Indexes created');
 
     console.log('\n✅ All tables created successfully!');
