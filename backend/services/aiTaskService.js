@@ -83,6 +83,50 @@ class AITaskService {
     return null;
   }
 
+  static extractJsonArray(text) {
+    const cleaned = (text || '').replace(/```(?:json)?|```/gi, '').trim();
+    if (!cleaned) return null;
+
+    try {
+      const parsed = JSON.parse(cleaned);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (_) {}
+
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        const parsed = JSON.parse(cleaned.slice(start, end + 1));
+        return Array.isArray(parsed) ? parsed : null;
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  static normalizeTaskSuggestion(suggestion) {
+    if (typeof suggestion === 'string') {
+      const title = suggestion.trim();
+      return title ? { title, description: '', category: '', priority: 'medium' } : null;
+    }
+
+    if (!suggestion || typeof suggestion !== 'object') return null;
+
+    const title = (suggestion.title || suggestion.name || suggestion.task || suggestion.summary || '').toString().trim();
+    if (!title) return null;
+
+    const priority = (suggestion.priority || 'medium').toString().toLowerCase().trim();
+
+    return {
+      title,
+      description: (suggestion.description || suggestion.details || '').toString().trim(),
+      category: (suggestion.category || '').toString().trim(),
+      priority: ['low', 'medium', 'high', 'critical'].includes(priority) ? priority : 'medium',
+      estimatedHours: suggestion.estimatedHours || suggestion.estimated_hours || null,
+      dueDate: suggestion.dueDate || suggestion.due_date || null
+    };
+  }
+
   static normalizeParsedTask(task, fallbackTitle = '') {
     const priority = (task.priority || 'medium').toString().toLowerCase().trim();
 
@@ -796,10 +840,175 @@ class AITaskService {
       });
 
       const content = (response.data.choices?.[0]?.message?.content || '').toString();
-      const suggestions = JSON.parse(content);
-      return suggestions;
+      const suggestions = AITaskService.extractJsonArray(content) || [];
+      return suggestions
+        .map(AITaskService.normalizeTaskSuggestion)
+        .filter(Boolean)
+        .slice(0, 5);
     } catch (error) {
       console.error('Error generating suggestions:', error.message || error);
+      return AITaskService.generateTaskSuggestionsFallback(userTaskHistory);
+    }
+  }
+
+  static generateTaskSuggestionsFallback(userTaskHistory = []) {
+    const openTasks = userTaskHistory.filter((task) => task.status !== 'done').slice(0, 3);
+    if (openTasks.length === 0) {
+      return [
+        {
+          title: 'Plan top priorities for this week',
+          description: 'Review current work, choose the most important outcomes, and define next actions.',
+          category: '',
+          priority: 'medium'
+        },
+        {
+          title: 'Review overdue or blocked work',
+          description: 'Check for delayed tasks, blockers, and dependencies that need attention.',
+          category: '',
+          priority: 'high'
+        }
+      ];
+    }
+
+    return openTasks.map((task) => ({
+      title: `Follow up on ${task.title}`,
+      description: task.description
+        ? `Review progress and define the next step for: ${task.description}`
+        : `Review progress and define the next step for "${task.title}".`,
+      category: task.category || '',
+      priority: task.priority || 'medium'
+    }));
+  }
+
+  static async generateAdditionalSubtasks(taskTitle, taskDescription, existingSubtasks = []) {
+    const extractJsonArray = (text) => {
+      if (!text) return null;
+      const cleaned = text.replace(/```json|```/gi, '').trim();
+      try {
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {}
+
+      const bracketMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (bracketMatch) {
+        try {
+          const parsed = JSON.parse(bracketMatch[0]);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (_) {}
+      }
+      return null;
+    };
+
+    const parseBulletSubtasks = (text) => {
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const items = [];
+      let current = null;
+
+      for (const line of lines) {
+        const bulletMatch = line.match(/^(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
+        if (bulletMatch) {
+          if (current) items.push(current);
+          current = { title: bulletMatch[1].trim(), description: '' };
+          continue;
+        }
+
+        if (line.toLowerCase().startsWith('title:')) {
+          if (current) items.push(current);
+          current = { title: line.split(/:/)[1].trim(), description: '' };
+          continue;
+        }
+
+        if (line.toLowerCase().startsWith('description:') && current) {
+          current.description = line.split(/:/)[1].trim();
+          continue;
+        }
+
+        if (current && line.length > 0) {
+          current.description += (current.description ? ' ' : '') + line;
+        }
+      }
+
+      if (current) items.push(current);
+      return items.filter((item) => item.title && item.title.length > 0);
+    };
+
+    const normalizeSubtask = (subtask) => {
+      if (typeof subtask === 'string') {
+        return {
+          title: subtask.trim(),
+          description: '',
+          priority: 'medium',
+          estimatedHours: null,
+          acceptanceCriteria: [],
+          notes: ''
+        };
+      }
+      if (typeof subtask === 'object' && subtask !== null) {
+        const title = (subtask.title || subtask.name || subtask.task || subtask.summary || '').toString().trim();
+        const description = (subtask.description || subtask.details || subtask.note || '').toString().trim();
+        const priority = (subtask.priority || 'medium').toString().toLowerCase().trim();
+        const estimatedHours = Number(subtask.estimatedHours || subtask.estimated_hours || subtask.effortHours || subtask.effort_hours || 0);
+        const acceptanceCriteria = Array.isArray(subtask.acceptanceCriteria || subtask.acceptance_criteria)
+          ? (subtask.acceptanceCriteria || subtask.acceptance_criteria).map((item) => item.toString().trim()).filter(Boolean)
+          : [];
+
+        return title ? {
+          title,
+          description,
+          priority: ['low', 'medium', 'high', 'critical'].includes(priority) ? priority : 'medium',
+          estimatedHours: Number.isFinite(estimatedHours) && estimatedHours > 0 ? Math.min(estimatedHours, 40) : null,
+          acceptanceCriteria: acceptanceCriteria.slice(0, 4),
+          notes: (subtask.notes || subtask.implementationNotes || subtask.implementation_notes || '').toString().trim()
+        } : null;
+      }
+      return null;
+    };
+
+    const existingText = Array.isArray(existingSubtasks) && existingSubtasks.length
+      ? existingSubtasks.map((subtask) => `- ${typeof subtask === 'string' ? subtask : subtask.title || subtask.description || ''}`).join('\n')
+      : '';
+
+    try {
+      const response = await AITaskService.sendAIRequest({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a senior project manager. Suggest 2-4 structured subtasks that can be added directly to a task. Respond with only a valid JSON array. Each item must include title, description, priority, estimatedHours, acceptanceCriteria, and notes. priority must be low, medium, high, or critical. acceptanceCriteria must be an array of 1-3 short checklist items.'
+          },
+          {
+            role: 'user',
+            content: `Task title: ${taskTitle}\nTask description: ${taskDescription}\n${existingText ? `Existing subtasks:\n${existingText}\n\n` : ''}Provide 2-4 useful subtasks that do not duplicate existing subtasks. Return only a valid JSON array like [{"title":"Confirm venue availability","description":"Call shortlisted venues and verify available dates, capacity, and pricing.","priority":"high","estimatedHours":1.5,"acceptanceCriteria":["Venue date confirmed","Capacity and pricing documented"],"notes":"Start with the top two venue options."}].`
+          }
+        ],
+        temperature: 0.55,
+        max_tokens: 800,
+        response_format: { type: 'json_array' }
+      });
+
+      const content = (response.data.choices?.[0]?.message?.content || '').toString();
+      let suggestions = extractJsonArray(content) || [];
+      if (!Array.isArray(suggestions) || suggestions.length === 0) {
+        suggestions = parseBulletSubtasks(content);
+      }
+
+      suggestions = (suggestions || [])
+        .map(normalizeSubtask)
+        .filter((item) => item && item.title.length > 0)
+        .slice(0, 4);
+
+      if (suggestions.length === 0) {
+        console.error('AI additional suggestion response could not be parsed into subtasks.', { content });
+        throw new Error('AI generated no additional suggestions.');
+      }
+
+      return suggestions;
+    } catch (error) {
+      console.error('Error generating additional subtasks:', error.message || error);
       return [];
     }
   }
@@ -868,24 +1077,36 @@ class AITaskService {
 
     if (text.includes('frontend')) categories.push('Frontend');
     if (text.includes('backend')) categories.push('Backend');
+    if (text.includes('admin')) categories.push('Admin');
     if (text.includes('development') || text.includes('dev')) categories.push('Development');
     if (text.includes('marketing')) categories.push('Marketing');
     if (text.includes('product')) categories.push('Product Management');
+    if (text.includes('business')) categories.push('Business');
+    if (text.includes('finance')) categories.push('Finance');
+    if (text.includes('operations')) categories.push('Operations');
 
     let status = 'all';
-    if (text.includes('overdue')) status = 'overdue';
+    if (/\boverdue\b/.test(text)) status = 'overdue';
     else if (text.includes('upcoming')) status = 'upcoming';
     else if (text.includes('done') || text.includes('completed')) status = 'done';
     else if (text.includes('in progress')) status = 'in_progress';
-    else if (text.includes('todo') || text.includes('pending')) status = 'todo';
+    else if (text.includes('todo') || text.includes('to do') || text.includes('pending') || text.includes('open')) status = 'todo';
+
+    let dueRange = '';
+    if (/\boverdue\b|\blate\b/.test(text)) dueRange = 'overdue';
+    else if (text.includes('today')) dueRange = 'today';
+    else if (text.includes('tomorrow')) dueRange = 'tomorrow';
+    else if (text.includes('this week') || text.includes('next 7 days') || text.includes('week')) dueRange = 'this_week';
+    else if (text.includes('upcoming') || text.includes('due')) dueRange = 'upcoming';
 
     const search = query
-      .replace(/\b(show|all|tasks?|task|overdue|upcoming|done|completed|in progress|todo|pending|critical|high|medium|low)\b/gi, ' ')
+      .replace(/\b(show|find|list|filter|all|my|me|related|about|for|to|tasks?|task|with|that|are|is|due|by|on|overdue|late|upcoming|today|tomorrow|this week|next 7 days|week|done|completed|complete|in progress|todo|to do|pending|open|critical|high|medium|low|priority)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
     return {
       status,
+      dueRange,
       categories,
       priorities,
       search,
@@ -944,11 +1165,11 @@ class AITaskService {
         messages: [
           {
             role: 'system',
-            content: 'Convert task search text into filters. Return only valid JSON with status, categories, priorities, search, and explanation. Status can be all, calendar, todo, in_progress, done, upcoming, or overdue.'
+            content: 'Convert task search text into filters. Return only valid JSON with status, dueRange, categories, priorities, search, and explanation. Status can be all, calendar, todo, in_progress, done, upcoming, or overdue. dueRange can be today, tomorrow, this_week, upcoming, overdue, or empty string. The search field must contain only leftover content keywords, not command words, status words, priority words, category words, or due-date words.'
           },
           {
             role: 'user',
-            content: `Search: "${query}"\n\nReturn JSON like {"status":"overdue","categories":["Frontend"],"priorities":[],"search":"frontend","explanation":"Showing overdue frontend tasks."}`
+            content: `Search: "${query}"\n\nReturn JSON like {"status":"todo","dueRange":"this_week","categories":["Frontend"],"priorities":["high"],"search":"","explanation":"Showing high priority todo frontend tasks due this week."}`
           }
         ],
         temperature: 0.1,
@@ -963,14 +1184,21 @@ class AITaskService {
       const fallback = AITaskService.parseSmartSearchFallback(query);
       const status = (parsed.status || fallback.status).toString();
       const validStatuses = ['all', 'calendar', 'todo', 'in_progress', 'done', 'upcoming', 'overdue'];
+      const dueRange = (parsed.dueRange || parsed.due_range || fallback.dueRange || '')
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+      const validDueRanges = ['today', 'tomorrow', 'this_week', 'upcoming', 'overdue', ''];
 
       return {
         status: validStatuses.includes(status) ? status : fallback.status,
+        dueRange: validDueRanges.includes(dueRange) ? dueRange : fallback.dueRange,
         categories: Array.isArray(parsed.categories) ? parsed.categories.map(String).filter(Boolean) : fallback.categories,
         priorities: Array.isArray(parsed.priorities)
           ? parsed.priorities.map((priority) => priority.toString().toLowerCase()).filter((priority) => ['low', 'medium', 'high', 'critical'].includes(priority))
           : fallback.priorities,
-        search: (parsed.search ?? fallback.search).toString(),
+        search: AITaskService.parseSmartSearchFallback((parsed.search ?? fallback.search).toString()).search,
         explanation: (parsed.explanation || fallback.explanation).toString()
       };
     } catch (error) {

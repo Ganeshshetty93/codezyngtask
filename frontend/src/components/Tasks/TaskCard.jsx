@@ -15,8 +15,7 @@ function TaskCard({
   onDelete,
   onOpenAssistant
 }) {
-  const visibleSubtasks = compact ? (task.subtasks || []).slice(0, 3) : (task.subtasks || []);
-  const remainingSubtasks = Math.max((task.subtasks?.length || 0) - visibleSubtasks.length, 0);
+  const visibleSubtasks = task.subtasks || [];
   const priorityClassName = priorityClassNames[task.priority] || priorityClassNames.medium;
 
   return (
@@ -71,9 +70,6 @@ function TaskCard({
                 </li>
               ))}
             </ul>
-            {remainingSubtasks > 0 && (
-              <p className="mt-2 text-xs font-semibold text-gray-500">+{remainingSubtasks} more</p>
-            )}
           </div>
         )}
 

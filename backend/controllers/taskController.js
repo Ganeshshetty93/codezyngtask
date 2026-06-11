@@ -37,8 +37,9 @@ function validateTaskPayload(payload = {}, { partial = false } = {}) {
   }
 
   if (!partial || payload.category !== undefined) {
-    if (!category) errors.category = 'Category is required.';
-    else if (category.length > 50) errors.category = 'Category must be 50 characters or fewer.';
+    if (category && category.length > 50) {
+      errors.category = 'Category must be 50 characters or fewer.';
+    }
   }
 
   if (priority && !VALID_PRIORITIES.includes(priority)) {
@@ -88,6 +89,9 @@ exports.getTaskById = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
+    if (task.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     res.json(task);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -109,7 +113,7 @@ exports.createTask = async (req, res) => {
       user_id: userId,
       title: title.trim(),
       description: description?.trim() || null,
-      category: category?.trim() || 'general',
+      category: category?.trim() || null,
       priority: priority || 'medium',
       due_date: dueDate || null,
       reminder_at: reminderAt || null,
@@ -285,6 +289,14 @@ exports.smartSearch = async (req, res) => {
 // Update task
 exports.updateTask = async (req, res) => {
   try {
+    const existingTask = await Task.getById(req.params.id);
+    if (!existingTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    if (existingTask.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
     const validationErrors = validateTaskPayload(req.body, { partial: true });
 
     if (Object.keys(validationErrors).length > 0) {
@@ -301,6 +313,14 @@ exports.updateTask = async (req, res) => {
 // Delete task
 exports.deleteTask = async (req, res) => {
   try {
+    const existingTask = await Task.getById(req.params.id);
+    if (!existingTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    if (existingTask.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
     await Task.delete(req.params.id);
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
@@ -374,5 +394,78 @@ exports.getAISuggestions = async (req, res) => {
     res.json({ suggestions });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Get additional AI suggestions for a single task
+exports.getTaskAIMoreSuggestions = async (req, res) => {
+  try {
+    const task = await Task.getById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    if (task.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const query = req.body.query?.toString().trim() || '';
+    const existingSubtasks = Array.isArray(req.body.existingSubtasks) ? req.body.existingSubtasks : [];
+
+    const suggestions = await AITaskService.generateAdditionalSubtasks(
+      task.title,
+      query || task.description || '',
+      existingSubtasks
+    );
+
+    res.json({ suggestions });
+  } catch (error) {
+    console.error('Task AI suggestion failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to generate AI suggestions' });
+  }
+};
+
+// Add AI-generated suggestion as a subtask on an existing task
+exports.addSuggestionToTask = async (req, res) => {
+  try {
+    const task = await Task.getById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    if (task.user_id !== req.user.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const title = req.body.title?.toString().trim();
+    const baseDescription = req.body.description?.toString().trim() || '';
+    const priority = req.body.priority?.toString().trim();
+    const estimatedHours = req.body.estimatedHours ?? req.body.estimated_hours;
+    const notes = (req.body.notes || req.body.implementationNotes || req.body.implementation_notes || '').toString().trim();
+    const acceptanceCriteria = Array.isArray(req.body.acceptanceCriteria || req.body.acceptance_criteria)
+      ? (req.body.acceptanceCriteria || req.body.acceptance_criteria).map((item) => item.toString().trim()).filter(Boolean)
+      : [];
+
+    if (!title) {
+      return res.status(400).json({ message: 'Suggestion title is required.' });
+    }
+
+    const descriptionParts = [];
+    if (baseDescription) descriptionParts.push(baseDescription);
+    if (priority) descriptionParts.push(`Priority: ${priority}`);
+    if (estimatedHours) descriptionParts.push(`Estimated hours: ${estimatedHours}`);
+    if (acceptanceCriteria.length) descriptionParts.push(`Acceptance criteria: ${acceptanceCriteria.join('; ')}`);
+    if (notes) descriptionParts.push(`Notes: ${notes}`);
+
+    const description = descriptionParts.join('\n');
+    const subtasks = await Subtask.createMany(task.id, [{ title, description, status: 'todo' }]);
+    if (!subtasks || subtasks.length === 0) {
+      return res.status(500).json({ message: 'Failed to add suggestion to task.' });
+    }
+
+    res.json({ subtasks });
+  } catch (error) {
+    console.error('Add suggestion to task failed:', error.stack || error.message);
+    res.status(500).json({ message: error.message || 'Failed to add suggestion to task' });
   }
 };

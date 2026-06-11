@@ -20,6 +20,8 @@ router.get('/category/:category', taskController.getByCategory);
 router.get('/upcoming/all', taskController.getUpcoming);
 router.get('/overdue/all', taskController.getOverdue);
 router.get('/ai/suggestions', taskController.getAISuggestions);
+router.post('/:id/ai/more-suggestions', taskController.getTaskAIMoreSuggestions);
+router.post('/:id/subtasks', taskController.addSuggestionToTask);
 
 // Task CRUD
 router.get('/', taskController.getAllTasks);

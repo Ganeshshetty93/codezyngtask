@@ -41,7 +41,7 @@ function Dashboard() {
     title: '',
     description: '',
     priority: 'medium',
-    category: 'general',
+    category: '',
     dueDate: '',
     reminderAt: '',
     estimatedHours: ''
@@ -50,7 +50,7 @@ function Dashboard() {
     title: '',
     description: '',
     priority: 'medium',
-    category: 'general',
+    category: '',
     status: 'todo',
     dueDate: '',
     reminderAt: ''
@@ -67,6 +67,13 @@ function Dashboard() {
   const [predictionLoading, setPredictionLoading] = useState(false);
   const [smartSearchLoading, setSmartSearchLoading] = useState(false);
   const [smartSearchMessage, setSmartSearchMessage] = useState('');
+  const [smartSearchKeyword, setSmartSearchKeyword] = useState('');
+  const [smartDueRange, setSmartDueRange] = useState('');
+  const [assistantExtraSuggestions, setAssistantExtraSuggestions] = useState([]);
+  const [assistantMoreLoading, setAssistantMoreLoading] = useState(false);
+  const [taskSuggestions, setTaskSuggestions] = useState([]);
+  const [taskSuggestionsLoading, setTaskSuggestionsLoading] = useState(false);
+  const [addingSuggestionTitle, setAddingSuggestionTitle] = useState('');
 
   const getTodayInputValue = () => {
     const today = new Date();
@@ -101,9 +108,7 @@ function Dashboard() {
       errors.status = 'Choose a valid status.';
     }
 
-    if (!category) {
-      errors.category = 'Category is required.';
-    } else if (category.length > 50) {
+    if (category && category.length > 50) {
       errors.category = 'Category must be 50 characters or fewer.';
     }
 
@@ -157,8 +162,80 @@ function Dashboard() {
     { value: 'low', label: 'Low' }
   ];
 
+  const normalizeList = (value) => {
+    if (Array.isArray(value)) return value.map((item) => item?.toString().trim()).filter(Boolean);
+    if (typeof value === 'string' && value.trim()) return [value.trim()];
+    return [];
+  };
+
+  const normalizeSmartStatus = (value) => {
+    const normalized = (value || 'all').toString().trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const aliases = {
+      completed: 'done',
+      complete: 'done',
+      pending: 'todo',
+      open: 'todo',
+      progress: 'in_progress',
+      due: 'upcoming'
+    };
+    const status = aliases[normalized] || normalized;
+    return ['all', 'calendar', 'todo', 'in_progress', 'done', 'upcoming', 'overdue'].includes(status)
+      ? status
+      : 'all';
+  };
+
+  const normalizeSmartDueRange = (value) => {
+    const normalized = (value || '').toString().trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const aliases = {
+      due_today: 'today',
+      today: 'today',
+      tomorrow: 'tomorrow',
+      this_week: 'this_week',
+      week: 'this_week',
+      next_7_days: 'this_week',
+      upcoming: 'upcoming',
+      overdue: 'overdue',
+      late: 'overdue'
+    };
+    return aliases[normalized] || '';
+  };
+
+  const cleanSmartKeyword = (value) => (
+    (value || '')
+      .toString()
+      .replace(/\b(show|find|list|filter|all|my|me|related|about|for|to|tasks?|task|with|that|are|is|due|by|on|overdue|late|upcoming|today|tomorrow|this week|next 7 days|week|done|completed|complete|in progress|todo|to do|pending|open|critical|high|medium|low|priority)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+
+  const taskMatchesDueRange = (task, dueRange) => {
+    if (!dueRange) return true;
+
+    const dueDate = task.due_date ? new Date(task.due_date) : null;
+    if (!dueDate || Number.isNaN(dueDate.getTime())) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const dayAfterTomorrow = new Date(today);
+    dayAfterTomorrow.setDate(today.getDate() + 2);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+
+    if (dueRange === 'today') return due >= today && due < tomorrow;
+    if (dueRange === 'tomorrow') return due >= tomorrow && due < dayAfterTomorrow;
+    if (dueRange === 'this_week' || dueRange === 'upcoming') return due >= today && due <= nextWeek;
+    if (dueRange === 'overdue') return due < today && task.status !== 'done';
+    return true;
+  };
+
   const visibleTasks = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const normalizedSearch = (smartSearchMessage ? smartSearchKeyword : searchQuery).trim().toLowerCase();
+    const searchTokens = normalizedSearch.split(/\s+/).filter(Boolean);
     const normalizedCategories = selectedCategories.map((category) => category.toLowerCase());
 
     return tasks.filter((task) => {
@@ -174,19 +251,20 @@ function Dashboard() {
         .join(' ')
         .toLowerCase();
 
-      const matchesSearch = !normalizedSearch || searchText.includes(normalizedSearch);
+      const matchesSearch = searchTokens.length === 0 || searchTokens.every((token) => searchText.includes(token));
       const matchesCategory = normalizedCategories.length === 0
         || normalizedCategories.includes((task.category || '').toLowerCase());
       const matchesPriority = selectedPriorities.length === 0
         || selectedPriorities.includes(task.priority || 'medium');
+      const matchesDueRange = taskMatchesDueRange(task, smartDueRange);
 
-      return matchesSearch && matchesCategory && matchesPriority;
+      return matchesSearch && matchesCategory && matchesPriority && matchesDueRange;
     });
-  }, [tasks, searchQuery, selectedCategories, selectedPriorities]);
+  }, [tasks, searchQuery, smartSearchKeyword, smartSearchMessage, selectedCategories, selectedPriorities, smartDueRange]);
 
   const assistantTask = useMemo(() => (
-    tasks.find((task) => task.id === assistantTaskId) || visibleTasks[0] || null
-  ), [tasks, assistantTaskId, visibleTasks]);
+    tasks.find((task) => task.id === assistantTaskId) || null
+  ), [tasks, assistantTaskId]);
 
   const assistantRecommendation = useMemo(() => {
     if (!assistantTask) return null;
@@ -204,12 +282,16 @@ function Dashboard() {
       : new Date(Date.now() + Math.max(3, Math.min(21, Math.ceil(estimatedHours / 4))) * 86400000).toLocaleDateString();
 
     const suggestedSubtasks = assistantTask.subtasks?.length
-      ? assistantTask.subtasks.slice(0, 4).map((subtask) => subtask.title || subtask.description)
+      ? assistantTask.subtasks.map((subtask) => ({
+        id: subtask.id,
+        title: subtask.title || subtask.description || 'Untitled subtask',
+        description: subtask.description || ''
+      }))
       : [
-        'Clarify goal and success metrics',
-        'Define milestones and owners',
-        'Prepare required materials',
-        'Review progress and next steps'
+        { title: 'Clarify goal and success metrics', description: '' },
+        { title: 'Define milestones and owners', description: '' },
+        { title: 'Prepare required materials', description: '' },
+        { title: 'Review progress and next steps', description: '' }
       ];
 
     return {
@@ -293,16 +375,147 @@ function Dashboard() {
   const openAssistantForTask = (taskId) => {
     setAssistantTaskId(taskId);
     setAssistantOpen(true);
+    setAssistantExtraSuggestions([]);
+    setTaskSuggestions([]);
   };
 
-  const handlePlanProductLaunch = () => {
+  const handleMoreAISuggestions = async () => {
+    if (!assistantTask) return;
+    setAssistantMoreLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await api.post(`/tasks/${assistantTask.id}/ai/more-suggestions`, {
+        query: assistantTask.description || assistantTask.title,
+        existingSubtasks: (assistantTask.subtasks || []).map((subtask) => subtask.title || subtask.description || '')
+      });
+
+      setAssistantExtraSuggestions(response.data.suggestions || []);
+      setSuccess('More AI suggestions generated successfully!');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to get more AI suggestions');
+    } finally {
+      setAssistantMoreLoading(false);
+    }
+  };
+
+  const handleLoadTaskSuggestions = async () => {
+    setTaskSuggestionsLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      if (assistantTask?.id) {
+        const response = await api.post(`/tasks/${assistantTask.id}/ai/more-suggestions`, {
+          query: assistantTask.description || assistantTask.title,
+          existingSubtasks: (assistantTask.subtasks || []).map((subtask) => subtask.title || subtask.description || '')
+        });
+        setAssistantExtraSuggestions(response.data.suggestions || []);
+        setSuccess(`AI suggestions loaded for "${assistantTask.title}".`);
+        return;
+      }
+
+      const response = await api.get('/tasks/ai/suggestions');
+      setTaskSuggestions(response.data.suggestions || []);
+      setSuccess('AI task suggestions loaded.');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load task suggestions');
+    } finally {
+      setTaskSuggestionsLoading(false);
+    }
+  };
+
+  const removeSuggestionFromLists = (suggestion) => {
+    setTaskSuggestions((current) => current.filter((item) => item.title !== suggestion.title));
+    setAssistantExtraSuggestions((current) => current.filter((item) => item.title !== suggestion.title));
+  };
+
+  const buildSuggestionDescription = (suggestion) => {
+    const parts = [];
+    const description = suggestion.description?.toString().trim();
+    const estimatedHours = suggestion.estimatedHours || suggestion.estimated_hours;
+    const priority = suggestion.priority?.toString().trim();
+    const notes = (suggestion.notes || suggestion.implementationNotes || suggestion.implementation_notes || '').toString().trim();
+    const acceptanceCriteria = Array.isArray(suggestion.acceptanceCriteria || suggestion.acceptance_criteria)
+      ? (suggestion.acceptanceCriteria || suggestion.acceptance_criteria).map((item) => item.toString().trim()).filter(Boolean)
+      : [];
+
+    if (description) parts.push(description);
+    if (priority) parts.push(`Priority: ${priority}`);
+    if (estimatedHours) parts.push(`Estimated hours: ${estimatedHours}`);
+    if (acceptanceCriteria.length) {
+      parts.push(`Acceptance criteria: ${acceptanceCriteria.join('; ')}`);
+    }
+    if (notes) parts.push(`Notes: ${notes}`);
+
+    return parts.join('\n');
+  };
+
+  const handleAddSuggestionAsSubtask = async (suggestion) => {
+    setAddingSuggestionTitle(`subtask:${suggestion.title || ''}`);
+    setError('');
+    setSuccess('');
+
+    if (!assistantTask?.id) {
+      setError('Select a task first to attach AI suggestions as subtasks.');
+      setAddingSuggestionTitle('');
+      return;
+    }
+
+    try {
+      await api.post(`/tasks/${assistantTask.id}/subtasks`, {
+        title: suggestion.title || 'Suggested task',
+        description: buildSuggestionDescription(suggestion),
+        priority: suggestion.priority,
+        estimatedHours: suggestion.estimatedHours || suggestion.estimated_hours,
+        acceptanceCriteria: suggestion.acceptanceCriteria || suggestion.acceptance_criteria,
+        notes: suggestion.notes || suggestion.implementationNotes || suggestion.implementation_notes
+      });
+      setSuccess(`Added suggestion "${suggestion.title}" as a subtask to "${assistantTask.title}".`);
+      removeSuggestionFromLists(suggestion);
+      fetchTasks();
+      fetchStats();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to attach suggested task to current task');
+    } finally {
+      setAddingSuggestionTitle('');
+    }
+  };
+
+  const handleCreateTaskFromSuggestion = async (suggestion) => {
+    setAddingSuggestionTitle(`task:${suggestion.title || ''}`);
+    setError('');
+    setSuccess('');
+
+    try {
+      await api.post('/tasks', {
+        title: suggestion.title || 'Suggested task',
+        description: suggestion.description || '',
+        priority: suggestion.priority || 'medium',
+        category: suggestion.category || '',
+        dueDate: suggestion.dueDate || suggestion.due_date || null,
+        estimatedHours: suggestion.estimatedHours || suggestion.estimated_hours || null
+      });
+      setSuccess(`Created "${suggestion.title}" as a new task.`);
+      removeSuggestionFromLists(suggestion);
+      fetchTasks();
+      fetchStats();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create task from suggestion');
+    } finally {
+      setAddingSuggestionTitle('');
+    }
+  };
+
+  const handlePlanCurrentTask = () => {
     setShowForm(true);
     setUseAI(true);
     setFormData((current) => ({
       ...current,
       title: assistantRecommendation
-        ? `Plan ${assistantRecommendation.title}`
-        : 'Plan my product launch for next month'
+        ? `Plan ${assistantRecommendation.title} with milestones, subtasks, risks, and delivery steps`
+        : 'Plan my next task with milestones, subtasks, risks, and delivery steps'
     }));
   };
 
@@ -417,7 +630,7 @@ function Dashboard() {
         title: '',
         description: '',
         priority: 'medium',
-        category: 'general',
+        category: '',
         dueDate: '',
         reminderAt: '',
         estimatedHours: ''
@@ -557,24 +770,32 @@ function Dashboard() {
     try {
       const response = await api.post('/tasks/ai/smart-search', { query });
       const filters = response.data || {};
-      const nextStatus = filters.status || 'all';
-      const nextPriorities = (filters.priorities || []).filter((priority) => (
+      const nextDueRange = normalizeSmartDueRange(filters.dueRange || filters.due_range);
+      let nextStatus = normalizeSmartStatus(filters.status);
+      if (nextStatus === 'all' && ['overdue', 'upcoming'].includes(nextDueRange)) {
+        nextStatus = nextDueRange;
+      }
+      const nextPriorities = normalizeList(filters.priorities || filters.priority).map((priority) => priority.toLowerCase()).filter((priority) => (
         priorityOptions.some((option) => option.value === priority)
       ));
-      const categoryMatches = (filters.categories || [])
-        .map((category) => {
-          const match = availableCategories.find((item) => item.toLowerCase() === category.toLowerCase());
-          return match || category;
-        })
+      const requestedCategories = normalizeList(filters.categories || filters.category);
+      const categoryMatches = requestedCategories
+        .map((category) => availableCategories.find((item) => item.toLowerCase() === category.toLowerCase()))
         .filter(Boolean);
+      const unmatchedCategories = requestedCategories.filter((category) => (
+        !categoryMatches.some((match) => match.toLowerCase() === category.toLowerCase())
+      ));
+      const nextSearch = [filters.search, ...unmatchedCategories]
+        .map((item) => item?.toString().trim())
+        .filter(Boolean)
+        .join(' ');
 
       setFilter(nextStatus);
       setSelectedPriorities(nextPriorities);
       setCategoryDraft(categoryMatches);
-      setSelectedCategories(categoryMatches.filter((category) => (
-        availableCategories.some((item) => item.toLowerCase() === category.toLowerCase())
-      )));
-      setSearchQuery(filters.search || query);
+      setSelectedCategories(categoryMatches);
+      setSmartDueRange(nextDueRange);
+      setSmartSearchKeyword(cleanSmartKeyword(nextSearch));
       setSmartSearchMessage(filters.explanation || 'Smart filters applied.');
       setSuccess('Smart search filters applied!');
     } catch (err) {
@@ -599,7 +820,7 @@ function Dashboard() {
       title: task.title || '',
       description: task.description || '',
       priority: task.priority || 'medium',
-      category: task.category || 'general',
+      category: task.category || '',
       status: task.status || 'todo',
       dueDate: task.due_date ? task.due_date.split('T')[0] : '',
       reminderAt: task.reminder_at ? task.reminder_at.slice(0, 16) : ''
@@ -638,7 +859,7 @@ function Dashboard() {
         title: '',
         description: '',
         priority: 'medium',
-        category: 'general',
+        category: '',
         status: 'todo',
         dueDate: '',
         reminderAt: ''
@@ -780,7 +1001,7 @@ function Dashboard() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div>
-                      <label className="block text-gray-700 font-bold mb-2">Category *</label>
+                      <label className="block text-gray-700 font-bold mb-2">Category</label>
                       <input
                         type="text"
                         name="category"
@@ -885,7 +1106,7 @@ function Dashboard() {
             <div>
               <label className="mb-1 block text-sm font-semibold text-gray-700">Search tasks</label>
               <div className="flex gap-2">
-                <input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setSmartSearchMessage(''); }} placeholder='Try "Show all overdue frontend tasks"' className="h-11 min-w-0 flex-1 rounded-lg border border-gray-300 px-4 focus:outline-none focus:border-blue-500" />
+                <input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setSmartSearchMessage(''); setSmartSearchKeyword(''); setSmartDueRange(''); }} placeholder='Try "high priority todo tasks due this week"' className="h-11 min-w-0 flex-1 rounded-lg border border-gray-300 px-4 focus:outline-none focus:border-blue-500" />
                 <button type="button" onClick={handleSmartSearch} disabled={smartSearchLoading} className="h-11 shrink-0 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{smartSearchLoading ? 'Applying...' : 'Smart'}</button>
               </div>
             </div>
@@ -924,8 +1145,8 @@ function Dashboard() {
               </div>
             </div>
 
-            <button type="button" onClick={() => { if (categoryDraft.length === 0) { setCategoryFilterError('Select at least one category before applying.'); return; } setSelectedCategories(categoryDraft); setCategoryMenuOpen(false); setCategoryFilterError(''); }} className="h-11 rounded-lg bg-blue-600 px-5 text-sm font-bold text-white transition hover:bg-blue-700">Apply</button>
-            <button type="button" onClick={() => { setSearchQuery(''); setSelectedCategories([]); setCategoryDraft([]); setCategoryMenuOpen(false); setSelectedPriorities([]); setPriorityMenuOpen(false); setCategoryFilterError(''); setSmartSearchMessage(''); }} className="h-11 rounded-lg bg-gray-200 px-5 text-sm font-semibold text-gray-700 transition hover:bg-gray-300">Clear</button>
+            <button type="button" onClick={() => { setSelectedCategories(categoryDraft); setCategoryMenuOpen(false); setCategoryFilterError(''); }} className="h-11 rounded-lg bg-blue-600 px-5 text-sm font-bold text-white transition hover:bg-blue-700">Apply</button>
+            <button type="button" onClick={() => { setSearchQuery(''); setSmartSearchKeyword(''); setSmartDueRange(''); setSelectedCategories([]); setCategoryDraft([]); setCategoryMenuOpen(false); setSelectedPriorities([]); setPriorityMenuOpen(false); setCategoryFilterError(''); setSmartSearchMessage(''); }} className="h-11 rounded-lg bg-gray-200 px-5 text-sm font-semibold text-gray-700 transition hover:bg-gray-300">Clear</button>
             <button type="button" onClick={handleDailySummary} disabled={summaryLoading} className="h-11 rounded-lg bg-slate-900 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{summaryLoading ? 'Generating...' : 'Daily Summary'}</button>
           </div>
 
@@ -937,11 +1158,13 @@ function Dashboard() {
             />
           </div>
 
-          {(smartSearchMessage || selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim() || categoryFilterError) && (
+          {(smartSearchMessage || selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim() || smartDueRange || categoryFilterError) && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
               {smartSearchMessage && <span className="text-blue-700">{smartSearchMessage}</span>}
               {categoryFilterError && <span className="text-red-600">{categoryFilterError}</span>}
-              {(selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim()) && (
+              {smartDueRange && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">Due: {smartDueRange.replace(/_/g, ' ')}</span>}
+              {smartSearchMessage && smartSearchKeyword && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">Text: {smartSearchKeyword}</span>}
+              {(selectedCategories.length > 0 || selectedPriorities.length > 0 || searchQuery.trim() || smartDueRange) && (
                 <span className="text-gray-600">Showing {visibleTasks.length} of {tasks.length} tasks</span>
               )}
             </div>
@@ -1053,7 +1276,7 @@ function Dashboard() {
                   <FieldError message={editFormErrors.priority} />
                 </div>
                 <div>
-                  <label className="block text-gray-700 font-bold mb-2">Category *</label>
+                  <label className="block text-gray-700 font-bold mb-2">Category</label>
                   <input
                     type="text"
                     name="category"
@@ -1176,9 +1399,19 @@ function Dashboard() {
                       open={assistantOpen}
                       layout="strip"
                       recommendation={assistantRecommendation}
+                      extraSuggestions={assistantExtraSuggestions}
+                      moreLoading={assistantMoreLoading}
+                      taskSuggestions={taskSuggestions}
+                      suggestionsLoading={taskSuggestionsLoading}
+                      addingSuggestionTitle={addingSuggestionTitle}
+                      hasSelectedTask={!!assistantTask}
                       onOpen={() => setAssistantOpen(true)}
                       onClose={() => setAssistantOpen(false)}
-                      onPlanProductLaunch={handlePlanProductLaunch}
+                      onPlanCurrentTask={handlePlanCurrentTask}
+                      onMoreSuggestions={handleMoreAISuggestions}
+                      onLoadSuggestions={handleLoadTaskSuggestions}
+                      onAddSuggestionAsSubtask={handleAddSuggestionAsSubtask}
+                      onCreateTaskFromSuggestion={handleCreateTaskFromSuggestion}
                     />
                   </div>
                 )}
@@ -1280,4 +1513,3 @@ function Dashboard() {
 }
 
 export default Dashboard;
-
